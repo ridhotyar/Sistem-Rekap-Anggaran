@@ -37,11 +37,19 @@ export default function App() {
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY_SUB);
       if (saved) {
         const parsed = JSON.parse(saved) as SubKegiatan[];
-        // Merge with official INITIAL_SUB_KEGIATAN_LIST to ensure new metadata (e.g. Bakesbangpol NTB) takes effect
-        return parsed.map((item) => {
-          const official = INITIAL_SUB_KEGIATAN_LIST.find((o) => o.id_sub_bl === item.id_sub_bl);
-          return official ? { ...item, ...official, pagu_indikatif: item.pagu_indikatif || official.pagu_indikatif } : item;
+        const officialMap = new Map(INITIAL_SUB_KEGIATAN_LIST.map((o) => [o.id_sub_bl, o]));
+        const mergedList = INITIAL_SUB_KEGIATAN_LIST.map((official) => {
+          const userSaved = parsed.find((p) => p.id_sub_bl === official.id_sub_bl);
+          return userSaved
+            ? { ...official, ...userSaved, pagu_indikatif: userSaved.pagu_indikatif || official.pagu_indikatif }
+            : official;
         });
+        parsed.forEach((p) => {
+          if (!officialMap.has(p.id_sub_bl)) {
+            mergedList.push(p);
+          }
+        });
+        return mergedList;
       }
       return INITIAL_SUB_KEGIATAN_LIST;
     } catch {
@@ -420,12 +428,6 @@ export default function App() {
     }, 600);
   };
 
-  // Filter: Data yang tidak memiliki rincian agar tidak ditampilkan
-  const subKegiatansWithRincian = React.useMemo(() => {
-    return subKegiatans.filter((sub) => {
-      return rincianItems.some((item) => item.id_sub_bl === sub.id_sub_bl);
-    });
-  }, [subKegiatans, rincianItems]);
 
   // Currently filtered rincian items for active sub-kegiatan
   const currentSubRincianItems = selectedSubKegiatan
@@ -443,7 +445,7 @@ export default function App() {
     >
       {viewMode === 'summary' || !selectedSubKegiatan ? (
         <SubKegiatanListPage
-          subKegiatans={subKegiatansWithRincian}
+          subKegiatans={subKegiatans}
           onSelectSubKegiatan={handleSelectSubKegiatan}
           onDeleteSubKegiatan={handleRequestDeleteSubKegiatan}
         />

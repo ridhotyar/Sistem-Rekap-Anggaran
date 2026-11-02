@@ -1,4 +1,5 @@
 import { RincianBelanjaItem, SubKegiatan, KeteranganSubBl } from '../types/budget';
+import { BASE_SUB_KEGIATAN_LIST } from './initialSubKegiatanData';
 
 /**
  * Metadata detail Keterangan Sub Belanja 1 (Paket Aktivitas 1) dari SIPD
@@ -496,38 +497,20 @@ export const INITIAL_USER_RINCIAN_DATA: RincianBelanjaItem[] = [
 ];
 
 /**
- * Daftar Sub-Kegiatan resmi dengan list keterangan_list lengkap
+ * Daftar Sub-Kegiatan resmi dengan list keterangan_list lengkap (51 Sub-Kegiatan Bakesbangpol NTB TA 2027)
  */
-export const INITIAL_SUB_KEGIATAN_LIST: SubKegiatan[] = [
-  {
-    id: 'sub-122054',
-    id_sub_bl: 122054,
-    id_sub_giat: 54528,
-    kode_sub_kegiatan: "8.01.02.1.01.0001",
-    nama_sub_kegiatan: "Perumusan Kebijakan Teknis di Bidang Ideologi Wawasan Kebangsaan, Bela Negara, Karakter Bangsa, Pembauran Kebangsaan, Bhineka Tunggal Ika dan Sejarah Kebangsaan",
-    id_giat: 12816,
-    kode_kegiatan: "8.01.02.1.01",
-    nama_kegiatan: "Perumusan Kebijakan Teknis dan Pemantapan Pelaksanaan Bidang Ideologi Pancasila dan Karakter Kebangsaan",
-    nama_giat: "Perumusan Kebijakan Teknis dan Pemantapan Pelaksanaan Bidang Ideologi Pancasila dan Karakter Kebangsaan",
-    nama_sub_giat: "Perumusan Kebijakan Teknis di Bidang Ideologi Wawasan Kebangsaan, Bela Negara, Karakter Bangsa, Pembauran Kebangsaan, Bhineka Tunggal Ika dan Sejarah Kebangsaan",
-    id_program: 7554,
-    kode_program: "8.01.02",
-    nama_program: "PROGRAM PENGUATAN IDEOLOGI PANCASILA DAN KARAKTER KEBANGSAAN",
-    id_skpd: 82,
-    id_unit: 82,
-    kode_skpd: "8.01.0.00.0.00.01",
-    nama_skpd: "Badan Kesatuan Bangsa dan Politik Dalam Negeri",
-    nama_unit: "Badan Kesatuan Bangsa dan Politik Dalam Negeri",
-    tahun: 2027,
-    id_daerah: 407,
-    nama_daerah: "Provinsi Nusa Tenggara Barat",
-    pagu_indikatif: 65555000,
-    rincian_count: 15,
-    total_rincian: 65555000,
-    status_verifikasi: 'Disetujui',
-    keterangan_list: INITIAL_KETERANGAN_LIST
+export const INITIAL_SUB_KEGIATAN_LIST: SubKegiatan[] = BASE_SUB_KEGIATAN_LIST.map((item) => {
+  if (item.id_sub_bl === 122054) {
+    return {
+      ...item,
+      keterangan_list: INITIAL_KETERANGAN_LIST,
+    };
   }
-];
+  return {
+    ...item,
+    keterangan_list: [],
+  };
+});
 
 /**
  * Payload contoh JSON 1 dengan > 1 id_ket_sub_bl untuk pengujian import 2 JSON

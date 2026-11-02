@@ -48,7 +48,7 @@ export const UserAuthButton: React.FC<UserAuthButtonProps> = ({
           type="button"
           onClick={onOpenFirebaseGuide}
           className="cursor-pointer transition-opacity hover:opacity-80"
-          title="Klik untuk melihat status database dan panduan koneksi Vercel"
+          title="Klik untuk melihat status koneksi Firebase"
         >
           <Badge
             variant={isFirebaseConnected ? 'success' : 'neutral'}

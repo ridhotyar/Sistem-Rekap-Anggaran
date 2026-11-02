@@ -77,11 +77,12 @@ export interface SubKegiatan {
   id_sub_giat?: number;
   id_giat?: number;
   kode_kegiatan?: string;
+  kode_giat?: string | null;
   nama_kegiatan?: string;
   nama_giat?: string;
   nama_sub_giat?: string;
   id_program?: number;
-  kode_program?: string;
+  kode_program?: string | null;
   nama_program?: string;
   id_skpd?: number;
   id_unit?: number;
@@ -96,6 +97,15 @@ export interface SubKegiatan {
   total_rincian?: number;
   status_verifikasi?: 'Draft' | 'Divalidasi' | 'Disetujui' | 'Final';
   keterangan_list?: KeteranganSubBl[];
+  pagu_giat?: number | null;
+  rinci_giat?: number | null;
+  kode_bl?: string | null;
+  kode_sbl?: string | null;
+  user_created?: string | null;
+  user_updated?: string | null;
+  created_date?: string | null;
+  updated_date?: string | null;
+  is_locked?: number | null;
 }
 
 export interface SipdApiResponse<T = RincianBelanjaItem[]> {

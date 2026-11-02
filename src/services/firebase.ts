@@ -128,20 +128,67 @@ export async function testFirestoreConnection(): Promise<boolean> {
   }
 }
 
+export interface FirestoreConnectionCheckResult {
+  connected: boolean;
+  message: string;
+  reason?: string;
+}
+
+export async function checkFirestoreConnectionStatus(): Promise<FirestoreConnectionCheckResult> {
+  try {
+    const q = query(collection(db, SUB_KEGIATAN_COLLECTION), limit(1));
+    await getDocs(q);
+    return {
+      connected: true,
+      message: 'Berhasil terhubung ke basis data Firestore.',
+    };
+  } catch (error: unknown) {
+    const err = error as { message?: string; code?: string };
+    const errMsg = err?.message || String(error);
+    const errCode = err?.code || '';
+
+    let reason = 'Tidak dapat menghubungi server Firebase. Periksa koneksi internet Anda.';
+
+    if (!navigator.onLine || errMsg.includes('the client is offline') || errMsg.includes('unavailable')) {
+      reason = 'Perangkat sedang offline atau jaringan internet tidak dapat menjangkau server Firebase.';
+    } else if (
+      errCode === 'permission-denied' ||
+      errMsg.includes('permission-denied') ||
+      errMsg.includes('Missing or insufficient permissions')
+    ) {
+      reason = 'Izin akses ditolak oleh aturan keamanan (Security Rules) basis data.';
+    } else if (errCode === 'not-found' || errMsg.includes('not-found')) {
+      reason = 'Basis data Firestore tidak ditemukan atau konfigurasi database tidak sesuai.';
+    } else if (errCode === 'unauthenticated') {
+      reason = 'Sesi autentikasi pengguna tidak valid atau telah berakhir.';
+    } else if (errMsg.includes('API key not valid')) {
+      reason = 'Kunci konfigurasi Firebase tidak valid.';
+    } else {
+      reason = `Gagal berkomunikasi dengan server basis data (${errCode || 'Koneksi terputus'}).`;
+    }
+
+    return {
+      connected: false,
+      message: 'Gagal terhubung ke Firebase',
+      reason,
+    };
+  }
+}
+
 // Collections
 const SUB_KEGIATAN_COLLECTION = 'sub_kegiatan';
 const RINCIAN_COLLECTION = 'rincian_belanja';
 
 /**
- * Seed initial data into Firestore if collections are empty
+ * Seed initial data into Firestore if collections are empty or missing new base sub-kegiatans
  */
 export async function seedInitialDataIfEmpty(): Promise<void> {
   try {
     const subSnap = await getDocs(collection(db, SUB_KEGIATAN_COLLECTION));
-    if (subSnap.empty) {
-      console.log('Seeding initial Sub-Kegiatan data to Firestore...');
+    if (subSnap.size < INITIAL_SUB_KEGIATAN_LIST.length) {
+      console.log(`Seeding initial Sub-Kegiatan data to Firestore (${INITIAL_SUB_KEGIATAN_LIST.length} items)...`);
       for (const item of INITIAL_SUB_KEGIATAN_LIST) {
-        await setDoc(doc(db, SUB_KEGIATAN_COLLECTION, item.id), item);
+        await setDoc(doc(db, SUB_KEGIATAN_COLLECTION, item.id), item, { merge: true });
       }
     }
 
@@ -241,7 +288,17 @@ export function subscribeSubKegiatan(
             ? { ...official, ...data, id: docSnap.id }
             : ({ ...data, id: docSnap.id } as SubKegiatan);
         });
-        onData(items);
+
+        // Ensure all official 51 sub-kegiatans are present
+        const existingIds = new Set(items.map((i) => i.id_sub_bl));
+        const combined = [...items];
+        INITIAL_SUB_KEGIATAN_LIST.forEach((official) => {
+          if (!existingIds.has(official.id_sub_bl)) {
+            combined.push(official);
+          }
+        });
+
+        onData(combined);
       }
     },
     (error) => {
