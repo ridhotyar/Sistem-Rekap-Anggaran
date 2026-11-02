@@ -41,7 +41,20 @@ export default function App() {
         const mergedList = INITIAL_SUB_KEGIATAN_LIST.map((official) => {
           const userSaved = parsed.find((p) => p.id_sub_bl === official.id_sub_bl);
           return userSaved
-            ? { ...official, ...userSaved, pagu_indikatif: userSaved.pagu_indikatif || official.pagu_indikatif }
+            ? {
+                ...official,
+                ...userSaved,
+                kode_sub_kegiatan: official.kode_sub_kegiatan || userSaved.kode_sub_kegiatan,
+                nama_sub_kegiatan: official.nama_sub_kegiatan || userSaved.nama_sub_kegiatan,
+                nama_program: official.nama_program || userSaved.nama_program,
+                kode_program: official.kode_program || userSaved.kode_program,
+                nama_kegiatan: official.nama_kegiatan || official.nama_giat || userSaved.nama_kegiatan,
+                kode_kegiatan: official.kode_kegiatan || official.kode_giat || userSaved.kode_kegiatan,
+                nama_skpd: official.nama_skpd || official.nama_unit || userSaved.nama_skpd,
+                kode_skpd: official.kode_skpd || userSaved.kode_skpd,
+                nama_daerah: official.nama_daerah || userSaved.nama_daerah || 'Provinsi Nusa Tenggara Barat',
+                pagu_indikatif: userSaved.pagu_indikatif || official.pagu_indikatif,
+              }
             : official;
         });
         parsed.forEach((p) => {
@@ -236,7 +249,23 @@ export default function App() {
 
   // Handlers
   const handleSelectSubKegiatan = (sub: SubKegiatan) => {
-    setSelectedSubKegiatan(sub);
+    const baseMatch = INITIAL_SUB_KEGIATAN_LIST.find((o) => o.id_sub_bl === sub.id_sub_bl);
+    const enrichedSub: SubKegiatan = baseMatch
+      ? {
+          ...baseMatch,
+          ...sub,
+          kode_sub_kegiatan: baseMatch.kode_sub_kegiatan || sub.kode_sub_kegiatan,
+          nama_sub_kegiatan: baseMatch.nama_sub_kegiatan || sub.nama_sub_kegiatan,
+          nama_program: baseMatch.nama_program || sub.nama_program,
+          kode_program: baseMatch.kode_program || sub.kode_program,
+          nama_kegiatan: baseMatch.nama_kegiatan || baseMatch.nama_giat || sub.nama_kegiatan,
+          kode_kegiatan: baseMatch.kode_kegiatan || baseMatch.kode_giat || sub.kode_kegiatan,
+          nama_skpd: baseMatch.nama_skpd || baseMatch.nama_unit || sub.nama_skpd,
+          kode_skpd: baseMatch.kode_skpd || sub.kode_skpd,
+          nama_daerah: baseMatch.nama_daerah || sub.nama_daerah || 'Provinsi Nusa Tenggara Barat',
+        }
+      : sub;
+    setSelectedSubKegiatan(enrichedSub);
     setViewMode('detail');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };

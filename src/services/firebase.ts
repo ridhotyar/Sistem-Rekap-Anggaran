@@ -285,7 +285,20 @@ export function subscribeSubKegiatan(
           const data = docSnap.data() as SubKegiatan;
           const official = INITIAL_SUB_KEGIATAN_LIST.find((o) => o.id_sub_bl === data.id_sub_bl);
           return official
-            ? { ...official, ...data, id: docSnap.id }
+            ? {
+                ...official,
+                ...data,
+                id: docSnap.id,
+                kode_sub_kegiatan: official.kode_sub_kegiatan || data.kode_sub_kegiatan,
+                nama_sub_kegiatan: official.nama_sub_kegiatan || data.nama_sub_kegiatan,
+                nama_program: official.nama_program || data.nama_program,
+                kode_program: official.kode_program || data.kode_program,
+                nama_kegiatan: official.nama_kegiatan || official.nama_giat || data.nama_kegiatan,
+                kode_kegiatan: official.kode_kegiatan || official.kode_giat || data.kode_kegiatan,
+                nama_skpd: official.nama_skpd || official.nama_unit || data.nama_skpd,
+                kode_skpd: official.kode_skpd || data.kode_skpd,
+                nama_daerah: official.nama_daerah || data.nama_daerah || 'Provinsi Nusa Tenggara Barat',
+              }
             : ({ ...data, id: docSnap.id } as SubKegiatan);
         });
 

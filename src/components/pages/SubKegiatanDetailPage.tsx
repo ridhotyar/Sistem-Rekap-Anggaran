@@ -15,6 +15,7 @@ import {
   Filter,
   Check,
   Trash2,
+  Briefcase,
 } from 'lucide-react';
 import { Button } from '../atoms/Button';
 import { Badge } from '../atoms/Badge';
@@ -27,6 +28,7 @@ import { SubKegiatanRincianTable } from '../organisms/SubKegiatanRincianTable';
 import { RincianItemFormModal } from '../organisms/RincianItemFormModal';
 import { SubKegiatan, RincianBelanjaItem, KeteranganSubBl } from '../../types/budget';
 import { INITIAL_KETERANGAN_LIST } from '../../data/initialBudgetData';
+import { BASE_SUB_KEGIATAN_LIST } from '../../data/initialSubKegiatanData';
 
 export interface SubKegiatanDetailPageProps {
   subKegiatan: SubKegiatan;
@@ -110,6 +112,74 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
     }
   };
 
+  // Find matching baseline data from 51 base sub-kegiatan list
+  const baseSub = useMemo(() => {
+    return (
+      BASE_SUB_KEGIATAN_LIST.find((b) => b.id_sub_bl === subKegiatan.id_sub_bl) ||
+      BASE_SUB_KEGIATAN_LIST.find((b) => b.id_sub_giat && b.id_sub_giat === subKegiatan.id_sub_giat) ||
+      null
+    );
+  }, [subKegiatan]);
+
+  // Ensure exact official code and values from base database
+  const kodeSubKegiatan =
+    baseSub?.kode_sub_kegiatan ||
+    subKegiatan.kode_sub_kegiatan ||
+    (subKegiatan as unknown as { kode_sub_giat?: string }).kode_sub_giat ||
+    '8.01.02.1.01.0002';
+
+  const namaSubKegiatan =
+    baseSub?.nama_sub_kegiatan ||
+    subKegiatan.nama_sub_kegiatan ||
+    (subKegiatan as unknown as { nama_sub_giat?: string }).nama_sub_giat ||
+    '-';
+
+  const namaProgram =
+    baseSub?.nama_program ||
+    subKegiatan.nama_program ||
+    'PROGRAM PENGUATAN IDEOLOGI PANCASILA DAN KARAKTER KEBANGSAAN';
+
+  const kodeProgram =
+    baseSub?.kode_program ||
+    subKegiatan.kode_program ||
+    '';
+
+  const namaKegiatan =
+    baseSub?.nama_kegiatan ||
+    (baseSub as unknown as { nama_giat?: string })?.nama_giat ||
+    subKegiatan.nama_kegiatan ||
+    subKegiatan.nama_giat ||
+    '-';
+
+  const kodeKegiatan =
+    baseSub?.kode_kegiatan ||
+    (baseSub as unknown as { kode_giat?: string })?.kode_giat ||
+    subKegiatan.kode_kegiatan ||
+    subKegiatan.kode_giat ||
+    '';
+
+  const namaSkpd =
+    baseSub?.nama_skpd ||
+    (baseSub as unknown as { nama_unit?: string })?.nama_unit ||
+    subKegiatan.nama_skpd ||
+    subKegiatan.nama_unit ||
+    'Badan Kesatuan Bangsa dan Politik Dalam Negeri';
+
+  const kodeSkpd =
+    baseSub?.kode_skpd ||
+    subKegiatan.kode_skpd ||
+    '8.01.0.00.0.00.01.0000';
+
+  const namaDaerah =
+    baseSub?.nama_daerah ||
+    subKegiatan.nama_daerah ||
+    'Provinsi Nusa Tenggara Barat';
+
+  const tahunAnggaran =
+    subKegiatan.tahun ||
+    baseSub?.tahun ||
+    2027;
+
   return (
     <div className="space-y-6">
       {/* Breadcrumb & Navigation */}
@@ -121,7 +191,7 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
               onClick: onBackToSummary,
             },
             {
-              label: `${subKegiatan.kode_sub_kegiatan} - ${subKegiatan.nama_sub_kegiatan}`,
+              label: `${kodeSubKegiatan} - ${namaSubKegiatan}`,
               active: true,
             },
           ]}
@@ -158,11 +228,11 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
         className="bg-gradient-to-br from-white via-slate-50 to-emerald-50/20 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800/80 border-emerald-500/20"
       >
         <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-5">
-          <div className="space-y-3 max-w-4xl">
+          <div className="space-y-3.5 max-w-4xl">
             {/* Badges row */}
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-xs font-bold px-2.5 py-1 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                {subKegiatan.kode_sub_kegiatan}
+                {kodeSubKegiatan}
               </span>
               <span className="text-xs text-slate-500 font-mono">
                 ID Sub BL: {subKegiatan.id_sub_bl}
@@ -176,7 +246,7 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
                 {subKegiatan.status_verifikasi || 'Disetujui'}
               </Badge>
               <Badge variant="primary" size="xs">
-                {subKegiatan.nama_daerah || 'Provinsi NTB'}
+                {namaDaerah}
               </Badge>
               <Badge variant="neutral" size="xs">
                 {keteranganList.length} Keterangan Sub Belanja
@@ -186,49 +256,83 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
             {/* Sub-kegiatan official title */}
             <div>
               <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block mb-0.5">
-                Sub-Kegiatan Belanja Langsung (APBD Murni {subKegiatan.tahun})
+                Sub-Kegiatan Belanja Langsung (APBD Murni {tahunAnggaran})
               </span>
               <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white leading-snug">
-                {subKegiatan.nama_sub_kegiatan}
+                {namaSubKegiatan}
               </h1>
             </div>
 
-            {/* Administrative Hierarchy details */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 pt-2 text-xs text-slate-600 dark:text-slate-400 border-t border-slate-200/80 dark:border-slate-800">
-              <div>
-                <span className="font-semibold text-slate-800 dark:text-slate-200 block">
-                  Program ({subKegiatan.id_program ? `ID: ${subKegiatan.id_program}` : ''}):
-                </span>
-                <span className="text-slate-600 dark:text-slate-300">
-                  {subKegiatan.nama_program || '-'}
-                </span>
+            {/* Administrative Hierarchy details - Value-first presentation as requested */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3 border-t border-slate-200/80 dark:border-slate-800">
+              {/* Program */}
+              <div className="p-3 rounded-lg bg-white/80 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <FolderKanban className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    Program
+                  </span>
+                  {kodeProgram && (
+                    <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                      {kodeProgram}
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+                  {namaProgram}
+                </div>
               </div>
 
-              <div>
-                <span className="font-semibold text-slate-800 dark:text-slate-200 block">
-                  Kegiatan ({subKegiatan.id_giat ? `ID: ${subKegiatan.id_giat}` : ''}):
-                </span>
-                <span className="text-slate-600 dark:text-slate-300">
-                  {subKegiatan.nama_kegiatan || subKegiatan.nama_giat || '-'}
-                </span>
+              {/* Kegiatan */}
+              <div className="p-3 rounded-lg bg-white/80 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Briefcase className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    Kegiatan
+                  </span>
+                  {kodeKegiatan && (
+                    <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300">
+                      {kodeKegiatan}
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+                  {namaKegiatan}
+                </div>
               </div>
 
-              <div>
-                <span className="font-semibold text-slate-800 dark:text-slate-200 block">
-                  SKPD / Unit Kerja ({subKegiatan.id_skpd ? `ID: ${subKegiatan.id_skpd}` : ''}):
-                </span>
-                <span className="text-slate-600 dark:text-slate-300">
-                  {subKegiatan.nama_skpd || subKegiatan.nama_unit || 'Badan Kesatuan Bangsa dan Politik Dalam Negeri'}
-                </span>
+              {/* SKPD */}
+              <div className="p-3 rounded-lg bg-white/80 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Building2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    SKPD / Perangkat Daerah
+                  </span>
+                  {kodeSkpd && (
+                    <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300">
+                      {kodeSkpd}
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+                  {namaSkpd}
+                </div>
               </div>
 
-              <div>
-                <span className="font-semibold text-slate-800 dark:text-slate-200 block">
-                  Pemerintah Daerah ({subKegiatan.id_daerah ? `ID: ${subKegiatan.id_daerah}` : ''}):
-                </span>
-                <span className="text-slate-600 dark:text-slate-300">
-                  {subKegiatan.nama_daerah || 'Provinsi Nusa Tenggara Barat'} (Tahun {subKegiatan.tahun})
-                </span>
+              {/* Pemerintah Daerah */}
+              <div className="p-3 rounded-lg bg-white/80 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <MapPin className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    Pemerintah Daerah
+                  </span>
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                    Tahun Anggaran {tahunAnggaran}
+                  </span>
+                </div>
+                <div className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+                  {namaDaerah}
+                </div>
               </div>
             </div>
           </div>
