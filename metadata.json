@@ -1,0 +1,6 @@
+{
+  "name": "SIPKD - Sistem Informasi Anggaran Sub-Kegiatan",
+  "description": "Sistem informasi pengelolaan anggaran dan rincian belanja sub-kegiatan berbasis React dengan Atomic Design dan integrasi Firebase Firestore.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,217 @@
+{
+  "entities": {
+    "SubKegiatan": {
+      "title": "SubKegiatan",
+      "description": "Entitas Sub Kegiatan Anggaran Belanja Daerah (SIPD/APBD) Bakesbangpoldagri NTB",
+      "type": "object",
+      "properties": {
+        "id_sub_bl": {
+          "type": "number",
+          "description": "ID Sub Kegiatan Belanja Langsung"
+        },
+        "id_sub_giat": {
+          "type": "number",
+          "description": "ID Sub Kegiatan SIPD"
+        },
+        "kode_sub_kegiatan": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Kode klasifikasi sub kegiatan"
+        },
+        "nama_sub_kegiatan": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Nama sub kegiatan"
+        },
+        "id_giat": {
+          "type": "number",
+          "description": "ID Kegiatan"
+        },
+        "nama_kegiatan": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Nama kegiatan"
+        },
+        "id_program": {
+          "type": "number",
+          "description": "ID Program"
+        },
+        "nama_program": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Nama program"
+        },
+        "id_skpd": {
+          "type": "number",
+          "description": "ID SKPD / OPD"
+        },
+        "id_unit": {
+          "type": "number",
+          "description": "ID Unit Kerja"
+        },
+        "nama_skpd": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Nama SKPD"
+        },
+        "nama_unit": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Nama Unit Kerja"
+        },
+        "tahun": {
+          "type": "number",
+          "description": "Tahun anggaran"
+        },
+        "id_daerah": {
+          "type": "number",
+          "description": "ID Daerah"
+        },
+        "nama_daerah": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Nama Daerah / Provinsi"
+        },
+        "pagu_indikatif": {
+          "type": "number",
+          "description": "Total alokasi pagu anggaran"
+        },
+        "updated_at": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Timestamp pembaruan terakhir"
+        }
+      },
+      "required": [
+        "id_sub_bl",
+        "kode_sub_kegiatan",
+        "nama_sub_kegiatan",
+        "tahun",
+        "id_daerah"
+      ]
+    },
+    "RincianBelanja": {
+      "title": "RincianBelanja",
+      "description": "Entitas rincian item belanja sub kegiatan dengan relasi Keterangan Sub BL (Paket Aktivitas)",
+      "type": "object",
+      "properties": {
+        "id_rinci_sub_bl": {
+          "type": "number",
+          "description": "ID Unik Rincian Sub BL"
+        },
+        "id_subs_sub_bl": {
+          "type": "number",
+          "description": "ID Subs Sub BL / Kelompok rincian"
+        },
+        "nama_subs_sub_bl": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Nama kelompok subs rincian belanja"
+        },
+        "id_ket_sub_bl": {
+          "type": "number",
+          "description": "ID Keterangan Sub BL"
+        },
+        "ket_bl_teks": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Teks deskripsi paket kegiatan keterangan sub BL"
+        },
+        "id_sub_bl": {
+          "type": "number",
+          "description": "ID Relasi Sub BL"
+        },
+        "tahun": {
+          "type": "number",
+          "description": "Tahun anggaran"
+        },
+        "id_daerah": {
+          "type": "number",
+          "description": "ID Daerah"
+        },
+        "id_standar_harga": {
+          "type": "number",
+          "description": "ID Standar Satuan Harga"
+        },
+        "kode_standar_harga": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Kode SSH/ASB/SBU"
+        },
+        "nama_standar_harga": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Nama standar satuan harga"
+        },
+        "spek": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Spesifikasi teknis barang / jasa"
+        },
+        "koefisien": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Koefisien volume dan satuan belanja"
+        },
+        "harga_satuan": {
+          "type": "number",
+          "description": "Harga satuan rupiah"
+        },
+        "total_harga": {
+          "type": "number",
+          "description": "Total harga rupiah (koefisien x harga satuan)"
+        },
+        "id_akun": {
+          "type": "number",
+          "description": "ID rekening belanja"
+        },
+        "kode_akun": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Kode rekening belanja daerah"
+        },
+        "nama_akun": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Nama rekening belanja"
+        },
+        "ssh_locked": {
+          "type": "string",
+          "maxLength": 10,
+          "description": "Status kunci SSH"
+        },
+        "is_pure_otsus": {
+          "type": "number",
+          "description": "Flag dana otsus murni"
+        },
+        "updated_at": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Timestamp update"
+        }
+      },
+      "required": [
+        "id_rinci_sub_bl",
+        "id_sub_bl",
+        "tahun",
+        "kode_akun",
+        "nama_akun",
+        "total_harga"
+      ]
+    }
+  },
+  "firestore": {
+    "/sub_kegiatan/{subKegiatanId}": {
+      "schema": {
+        "$ref": "#/entities/SubKegiatan"
+      },
+      "description": "Koleksi daftar sub-kegiatan anggaran belanja daerah"
+    },
+    "/rincian_belanja/{rincianId}": {
+      "schema": {
+        "$ref": "#/entities/RincianBelanja"
+      },
+      "description": "Koleksi rincian detail belanja per sub-kegiatan"
+    }
+  }
+}

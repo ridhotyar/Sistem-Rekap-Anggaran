@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidSubKegiatan(data) {
+      return data.keys().hasAll(['id_sub_bl', 'kode_sub_kegiatan', 'nama_sub_kegiatan', 'tahun', 'id_daerah'])
+        && data.id_sub_bl is number
+        && data.kode_sub_kegiatan is string && data.kode_sub_kegiatan.size() <= 64
+        && data.nama_sub_kegiatan is string && data.nama_sub_kegiatan.size() <= 500
+        && data.tahun is number
+        && data.id_daerah is number;
+    }
+
+    function isValidRincianBelanja(data) {
+      return data.keys().hasAll(['id_rinci_sub_bl', 'id_sub_bl', 'tahun', 'kode_akun', 'nama_akun', 'total_harga'])
+        && data.id_rinci_sub_bl is number
+        && data.id_sub_bl is number
+        && data.tahun is number
+        && data.kode_akun is string && data.kode_akun.size() <= 64
+        && data.nama_akun is string && data.nama_akun.size() <= 255
+        && data.total_harga is number;
+    }
+
+    // Sub-kegiatan koleksi anggaran
+    match /sub_kegiatan/{subKegiatanId} {
+      allow read: if true;
+      allow create: if isValidId(subKegiatanId) && isValidSubKegiatan(incoming());
+      allow update: if isValidId(subKegiatanId) && isValidSubKegiatan(incoming());
+      allow delete: if isValidId(subKegiatanId);
+    }
+
+    // Rincian belanja per sub-kegiatan
+    match /rincian_belanja/{rincianId} {
+      allow read: if true;
+      allow create: if isValidId(rincianId) && isValidRincianBelanja(incoming());
+      allow update: if isValidId(rincianId) && isValidRincianBelanja(incoming());
+      allow delete: if isValidId(rincianId);
+    }
+  }
+}
