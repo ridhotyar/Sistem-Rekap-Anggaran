@@ -8,6 +8,7 @@ export interface AppLayoutProps {
   isFirebaseConnected: boolean;
   onOpenImportExport: () => void;
   onRefreshData?: () => void;
+  onOpenFirebaseGuide?: () => void;
   isSyncing?: boolean;
 }
 
@@ -17,6 +18,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   isFirebaseConnected,
   onOpenImportExport,
   onRefreshData,
+  onOpenFirebaseGuide,
   isSyncing,
 }) => {
   return (
@@ -27,6 +29,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         isFirebaseConnected={isFirebaseConnected}
         onOpenImportExport={onOpenImportExport}
         onRefreshData={onRefreshData}
+        onOpenFirebaseGuide={onOpenFirebaseGuide}
         isSyncing={isSyncing}
       />
 

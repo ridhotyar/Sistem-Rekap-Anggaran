@@ -10,6 +10,7 @@ export interface HeaderNavbarProps {
   isFirebaseConnected: boolean;
   onOpenImportExport: () => void;
   onRefreshData?: () => void;
+  onOpenFirebaseGuide?: () => void;
   isSyncing?: boolean;
 }
 
@@ -18,6 +19,7 @@ export const HeaderNavbar: React.FC<HeaderNavbarProps> = ({
   isFirebaseConnected,
   onOpenImportExport,
   onRefreshData,
+  onOpenFirebaseGuide,
   isSyncing = false,
 }) => {
   return (
@@ -82,6 +84,7 @@ export const HeaderNavbar: React.FC<HeaderNavbarProps> = ({
             <UserAuthButton
               currentUser={currentUser}
               isFirebaseConnected={isFirebaseConnected}
+              onOpenFirebaseGuide={onOpenFirebaseGuide}
             />
           </div>
         </div>

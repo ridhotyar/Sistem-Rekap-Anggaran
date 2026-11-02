@@ -11,6 +11,7 @@ import {
   getDocFromServer,
   query,
   where,
+  limit,
   type Unsubscribe,
 } from 'firebase/firestore';
 import {
@@ -21,9 +22,24 @@ import {
   onAuthStateChanged,
   type User,
 } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+import rawConfig from '../../firebase-applet-config.json';
 import { RincianBelanjaItem, SubKegiatan } from '../types/budget';
 import { INITIAL_USER_RINCIAN_DATA, INITIAL_SUB_KEGIATAN_LIST } from '../data/initialBudgetData';
+
+// Dual configuration: supports both Vite environment variables (for Vercel/Netlify) and firebase-applet-config.json
+export const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || rawConfig?.apiKey || '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig?.authDomain || '',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || rawConfig?.projectId || '',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig?.storageBucket || '',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig?.messagingSenderId || '',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || rawConfig?.appId || '',
+  // SANGAT PENTING: Firestore menggunakan database bernama 'ai-studio-150c024a-fb71-4702-88d7-f8d9525658ff'
+  firestoreDatabaseId:
+    import.meta.env.VITE_FIREBASE_DATABASE_ID ||
+    rawConfig?.firestoreDatabaseId ||
+    'ai-studio-150c024a-fb71-4702-88d7-f8d9525658ff',
+};
 
 // Initialize Firebase
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -98,11 +114,14 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 // Connection check
 export async function testFirestoreConnection(): Promise<boolean> {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    const q = query(collection(db, SUB_KEGIATAN_COLLECTION), limit(1));
+    await getDocs(q);
     return true;
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn('Firebase client is currently offline or unreachable.');
+    } else {
+      console.warn('Firestore connection check notice:', error);
     }
     // Return false on connection failure, allowing graceful local fallback
     return false;
@@ -137,6 +156,69 @@ export async function seedInitialDataIfEmpty(): Promise<void> {
   } catch (error) {
     console.warn('Could not auto-seed Firestore directly (offline or rules in effect):', error);
   }
+}
+
+/**
+ * Force sync and upload current local data to Firestore
+ */
+export async function forceSyncLocalToFirestore(
+  subList: SubKegiatan[],
+  rincianList: RincianBelanjaItem[]
+): Promise<{ success: boolean; message: string }> {
+  try {
+    for (const sub of subList) {
+      await setDoc(doc(db, SUB_KEGIATAN_COLLECTION, sub.id), sub, { merge: true });
+    }
+    for (const item of rincianList) {
+      const docId = item.id || `rinci-${item.id_rinci_sub_bl}`;
+      await setDoc(doc(db, RINCIAN_COLLECTION, docId), { ...item, id: docId }, { merge: true });
+    }
+    return {
+      success: true,
+      message: `Berhasil sinkronisasi ${subList.length} sub-kegiatan dan ${rincianList.length} rincian ke Firestore!`,
+    };
+  } catch (error) {
+    console.error('Force sync to Firestore error:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * Listen to ALL Rincian Belanja in real-time
+ */
+export function subscribeAllRincianBelanja(
+  onData: (data: RincianBelanjaItem[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    collection(db, RINCIAN_COLLECTION),
+    (snapshot) => {
+      if (snapshot.empty) {
+        onData(INITIAL_USER_RINCIAN_DATA);
+      } else {
+        const items = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as RincianBelanjaItem;
+          const official = INITIAL_USER_RINCIAN_DATA.find((i) => i.id_rinci_sub_bl === data.id_rinci_sub_bl);
+          return official
+            ? {
+                ...data,
+                id: docSnap.id,
+                ket_bl_teks: data.ket_bl_teks || official.ket_bl_teks,
+                nama_subs_sub_bl: data.nama_subs_sub_bl || official.nama_subs_sub_bl,
+              }
+            : ({ ...data, id: docSnap.id } as RincianBelanjaItem);
+        });
+        onData(items);
+      }
+    },
+    (error) => {
+      console.error('Subscription error on all rincian_belanja:', error);
+      onError?.(error);
+    }
+  );
 }
 
 /**

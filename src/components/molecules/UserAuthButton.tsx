@@ -8,11 +8,13 @@ import type { User } from 'firebase/auth';
 export interface UserAuthButtonProps {
   currentUser: User | null;
   isFirebaseConnected: boolean;
+  onOpenFirebaseGuide?: () => void;
 }
 
 export const UserAuthButton: React.FC<UserAuthButtonProps> = ({
   currentUser,
   isFirebaseConnected,
+  onOpenFirebaseGuide,
 }) => {
   const [loading, setLoading] = React.useState(false);
 
@@ -42,15 +44,22 @@ export const UserAuthButton: React.FC<UserAuthButtonProps> = ({
     <div className="flex items-center gap-2">
       {/* Firebase status badge */}
       <div className="hidden md:flex items-center">
-        <Badge
-          variant={isFirebaseConnected ? 'success' : 'neutral'}
-          size="xs"
-          dot
-          className="font-normal"
+        <button
+          type="button"
+          onClick={onOpenFirebaseGuide}
+          className="cursor-pointer transition-opacity hover:opacity-80"
+          title="Klik untuk melihat status database dan panduan koneksi Vercel"
         >
-          <Database className="w-3 h-3 mr-0.5 inline" />
-          {isFirebaseConnected ? 'Firebase Aktif' : 'Penyimpanan Lokal'}
-        </Badge>
+          <Badge
+            variant={isFirebaseConnected ? 'success' : 'neutral'}
+            size="xs"
+            dot
+            className="font-normal"
+          >
+            <Database className="w-3 h-3 mr-0.5 inline" />
+            {isFirebaseConnected ? 'Firebase Aktif' : 'Penyimpanan Lokal'}
+          </Badge>
+        </button>
       </div>
 
       {currentUser ? (

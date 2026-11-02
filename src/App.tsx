@@ -4,15 +4,18 @@ import { SubKegiatanListPage } from './components/pages/SubKegiatanListPage';
 import { SubKegiatanDetailPage } from './components/pages/SubKegiatanDetailPage';
 import { ImportExportModal } from './components/organisms/ImportExportModal';
 import { ConfirmDeleteSubKegiatanModal } from './components/organisms/ConfirmDeleteSubKegiatanModal';
+import { FirebaseSyncGuideModal } from './components/organisms/FirebaseSyncGuideModal';
 import {
   testFirestoreConnection,
   subscribeAuth,
   subscribeSubKegiatan,
-  subscribeRincianBelanja,
+  subscribeAllRincianBelanja,
   saveRincianBelanja,
+  saveSubKegiatan,
   removeRincianBelanja,
   removeSubKegiatan,
   seedInitialDataIfEmpty,
+  forceSyncLocalToFirestore,
 } from './services/firebase';
 import {
   INITIAL_USER_RINCIAN_DATA,
@@ -74,6 +77,7 @@ export default function App() {
   const [isFirebaseConnected, setIsFirebaseConnected] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isImportExportOpen, setIsImportExportOpen] = useState<boolean>(false);
+  const [isFirebaseGuideOpen, setIsFirebaseGuideOpen] = useState<boolean>(false);
   const [subKegiatanToDelete, setSubKegiatanToDelete] = useState<SubKegiatan | null>(null);
   const [isDeletingSubKegiatan, setIsDeletingSubKegiatan] = useState<boolean>(false);
 
@@ -194,17 +198,18 @@ export default function App() {
           (data) => {
             if (isMounted && data.length > 0) {
               setSubKegiatans(data);
+              setIsFirebaseConnected(true);
             }
           },
           (err) => console.warn('SubKegiatan sync warning:', err)
         );
 
-        // Subscribe to live rincian_belanja for 122054
-        subscribeRincianBelanja(
-          122054,
+        // Subscribe to live all rincian_belanja
+        subscribeAllRincianBelanja(
           (data) => {
             if (isMounted && data.length > 0) {
               setRincianItems(data);
+              setIsFirebaseConnected(true);
             }
           },
           (err) => console.warn('RincianBelanja sync warning:', err)
@@ -382,6 +387,7 @@ export default function App() {
 
     // 4. Background sync to Firestore
     try {
+      await saveSubKegiatan(mergedSubKegiatan);
       for (const item of mergedRincian) {
         await saveRincianBelanja(item);
       }
@@ -406,6 +412,9 @@ export default function App() {
     setIsSyncing(true);
     const connected = await testFirestoreConnection();
     setIsFirebaseConnected(connected);
+    if (connected) {
+      await forceSyncLocalToFirestore(subKegiatans, rincianItems);
+    }
     setTimeout(() => {
       setIsSyncing(false);
     }, 600);
@@ -428,6 +437,7 @@ export default function App() {
       currentUser={currentUser}
       isFirebaseConnected={isFirebaseConnected}
       onOpenImportExport={() => setIsImportExportOpen(true)}
+      onOpenFirebaseGuide={() => setIsFirebaseGuideOpen(true)}
       onRefreshData={handleRefresh}
       isSyncing={isSyncing}
     >
@@ -465,6 +475,16 @@ export default function App() {
         subKegiatan={subKegiatanToDelete}
         onConfirm={handleConfirmDeleteSubKegiatan}
         isDeleting={isDeletingSubKegiatan}
+      />
+
+      {/* Firebase & Vercel Sync Guide Modal */}
+      <FirebaseSyncGuideModal
+        isOpen={isFirebaseGuideOpen}
+        onClose={() => setIsFirebaseGuideOpen(false)}
+        isFirebaseConnected={isFirebaseConnected}
+        subKegiatans={subKegiatans}
+        rincianItems={rincianItems}
+        onSyncComplete={handleRefresh}
       />
     </AppLayout>
   );
