@@ -15,7 +15,7 @@ export const getStoredUsers = (): AppUser[] => {
     }
     const parsed = JSON.parse(raw) as AppUser[];
     // Ensure default admin always exists
-    const hasAdmin = parsed.some((u) => u.username === 'admin');
+    const hasAdmin = parsed.some((u) => u.username === DEFAULT_USERS[0].username || u.role === 'admin');
     if (!hasAdmin) {
       const merged = [DEFAULT_USERS[0], ...parsed];
       localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(merged));
@@ -133,7 +133,7 @@ export const deleteUser = async (userId: string): Promise<{ success: boolean; er
   if (!target) {
     return { success: false, error: 'Pengguna tidak ditemukan.' };
   }
-  if (target.username === 'admin') {
+  if (target.username === DEFAULT_USERS[0].username) {
     return { success: false, error: 'Akun Administrator utama tidak dapat dihapus.' };
   }
 

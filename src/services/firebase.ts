@@ -239,17 +239,17 @@ export async function forceSyncLocalToFirestore(
   try {
     // Sync sub kegiatan
     for (const sub of subList) {
-      await setDoc(doc(db, SUB_KEGIATAN_COLLECTION, sub.id), sub, { merge: true });
+      await setDoc(doc(db, SUB_KEGIATAN_COLLECTION, sub.id), cleanFirestoreData(sub), { merge: true });
     }
     // Sync rincian belanja
     for (const item of rincianList) {
       const docId = item.id || `rinci-${item.id_rinci_sub_bl}`;
-      await setDoc(doc(db, RINCIAN_COLLECTION, docId), { ...item, id: docId }, { merge: true });
+      await setDoc(doc(db, RINCIAN_COLLECTION, docId), cleanFirestoreData({ ...item, id: docId }), { merge: true });
     }
     // Sync users
     if (userList && userList.length > 0) {
       for (const user of userList) {
-        await setDoc(doc(db, APP_USERS_COLLECTION, user.id), user, { merge: true });
+        await setDoc(doc(db, APP_USERS_COLLECTION, user.id), cleanFirestoreData(user), { merge: true });
       }
     }
     return {
@@ -295,7 +295,7 @@ export function subscribeAppUsers(
 export async function saveAppUser(user: AppUser): Promise<void> {
   const docId = user.id;
   try {
-    await setDoc(doc(db, APP_USERS_COLLECTION, docId), user, { merge: true });
+    await setDoc(doc(db, APP_USERS_COLLECTION, docId), cleanFirestoreData(user), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `${APP_USERS_COLLECTION}/${docId}`);
   }
@@ -440,15 +440,28 @@ export function subscribeRincianBelanja(
 }
 
 /**
+ * Helper to strip undefined values so Firestore setDoc never throws invalid data errors
+ */
+function cleanFirestoreData<T extends Record<string, any>>(data: T): Record<string, any> {
+  const cleaned: Record<string, any> = {};
+  for (const [key, val] of Object.entries(data)) {
+    if (val !== undefined) {
+      cleaned[key] = val;
+    }
+  }
+  return cleaned;
+}
+
+/**
  * Add or update a Rincian Belanja item in Firestore
  */
 export async function saveRincianBelanja(item: RincianBelanjaItem): Promise<void> {
   const docId = item.id || `rinci-${item.id_rinci_sub_bl}`;
-  const payload = {
+  const payload = cleanFirestoreData({
     ...item,
     id: docId,
     updated_at: new Date().toISOString(),
-  };
+  });
 
   try {
     await setDoc(doc(db, RINCIAN_COLLECTION, docId), payload);
@@ -474,7 +487,7 @@ export async function removeRincianBelanja(docId: string): Promise<void> {
 export async function saveSubKegiatan(sub: SubKegiatan): Promise<void> {
   const docId = sub.id;
   try {
-    await setDoc(doc(db, SUB_KEGIATAN_COLLECTION, docId), sub, { merge: true });
+    await setDoc(doc(db, SUB_KEGIATAN_COLLECTION, docId), cleanFirestoreData(sub), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `${SUB_KEGIATAN_COLLECTION}/${docId}`);
   }
