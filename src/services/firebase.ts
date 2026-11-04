@@ -26,7 +26,6 @@ import rawConfig from '../../firebase-applet-config.json';
 import { RincianBelanjaItem, SubKegiatan } from '../types/budget';
 import { AppUser, DEFAULT_USERS } from '../types/auth';
 import { INITIAL_USER_RINCIAN_DATA, INITIAL_SUB_KEGIATAN_LIST } from '../data/initialBudgetData';
-import { hashPassword, verifyPassword } from './cryptoService';
 
 // Dual configuration: supports both Vite environment variables (for Vercel/Netlify) and firebase-applet-config.json
 export const firebaseConfig = {
@@ -182,16 +181,15 @@ export const RINCIAN_COLLECTION = 'rincian_belanja';
 export const APP_USERS_COLLECTION = 'app_users';
 
 /**
- * Seed initial users into Firestore with encrypted password hashes if collection is empty
+ * Seed initial users into Firestore if collection is empty
  */
 export async function seedInitialUsersIfEmpty(): Promise<void> {
   try {
     const userSnap = await getDocs(collection(db, APP_USERS_COLLECTION));
     if (userSnap.empty) {
-      console.log(`Menyimpan ${DEFAULT_USERS.length} akun pengguna bawaan dengan hash terenkripsi ke Firestore...`);
+      console.log(`Menyimpan ${DEFAULT_USERS.length} akun pengguna bawaan ke Firestore...`);
       for (const user of DEFAULT_USERS) {
-        const { password, ...safeUser } = user;
-        await setDoc(doc(db, APP_USERS_COLLECTION, user.id), safeUser, { merge: true });
+        await setDoc(doc(db, APP_USERS_COLLECTION, user.id), user, { merge: true });
       }
     }
   } catch (error) {
@@ -204,7 +202,7 @@ export async function seedInitialUsersIfEmpty(): Promise<void> {
  */
 export async function seedInitialDataIfEmpty(): Promise<void> {
   try {
-    // 1. Seed users (with encrypted hashes)
+    // 1. Seed users
     await seedInitialUsersIfEmpty();
 
     // 2. Seed sub_kegiatan
@@ -248,11 +246,10 @@ export async function forceSyncLocalToFirestore(
       const docId = item.id || `rinci-${item.id_rinci_sub_bl}`;
       await setDoc(doc(db, RINCIAN_COLLECTION, docId), cleanFirestoreData({ ...item, id: docId }), { merge: true });
     }
-    // Sync users without plaintext passwords
+    // Sync users
     if (userList && userList.length > 0) {
       for (const user of userList) {
-        const { password, ...safeUser } = user;
-        await setDoc(doc(db, APP_USERS_COLLECTION, user.id), cleanFirestoreData(safeUser), { merge: true });
+        await setDoc(doc(db, APP_USERS_COLLECTION, user.id), cleanFirestoreData(user), { merge: true });
       }
     }
     return {
@@ -269,62 +266,7 @@ export async function forceSyncLocalToFirestore(
 }
 
 /**
- * Authenticate a single user against Firestore when login button is clicked.
- * Hits Firestore ONLY for this specific username and compares encrypted/hashed password.
- */
-export async function authenticateUserFromFirestore(
-  username: string,
-  passwordAttempt: string
-): Promise<AppUser | null> {
-  const cleanUsername = username.trim().toLowerCase();
-  try {
-    const q = query(
-      collection(db, APP_USERS_COLLECTION),
-      where('username', '==', cleanUsername),
-      limit(1)
-    );
-    const snap = await getDocs(q);
-    if (snap.empty) return null;
-
-    const docSnap = snap.docs[0];
-    const data = docSnap.data() as AppUser;
-
-    if (data.passwordHash && data.salt) {
-      const isMatch = await verifyPassword(passwordAttempt, data.passwordHash, data.salt);
-      if (isMatch) {
-        return {
-          id: docSnap.id,
-          username: data.username,
-          nama: data.nama,
-          role: data.role,
-          bidang: data.bidang,
-          jabatan: data.jabatan,
-          createdAt: data.createdAt,
-        };
-      }
-    } else if (data.password && data.password === passwordAttempt) {
-      // Auto-upgrade legacy plaintext to encrypted hash
-      const { hash, salt } = await hashPassword(passwordAttempt);
-      await updateDoc(docSnap.ref, { passwordHash: hash, salt, password: '[PROTECTED]' });
-      return {
-        id: docSnap.id,
-        username: data.username,
-        nama: data.nama,
-        role: data.role,
-        bidang: data.bidang,
-        jabatan: data.jabatan,
-        createdAt: data.createdAt,
-      };
-    }
-    return null;
-  } catch (err) {
-    console.warn('Firestore authenticateUser query notice:', err);
-    return null;
-  }
-}
-
-/**
- * Listen to all App Users in real-time (Only invoked when Admin opens User Management)
+ * Listen to all App Users in real-time
  */
 export function subscribeAppUsers(
   onData: (data: AppUser[]) => void,
@@ -334,14 +276,9 @@ export function subscribeAppUsers(
     collection(db, APP_USERS_COLLECTION),
     (snapshot) => {
       if (snapshot.empty) {
-        onData(DEFAULT_USERS.map(({ password, ...u }) => u as AppUser));
+        onData(DEFAULT_USERS);
       } else {
-        const items = snapshot.docs.map((docSnap) => {
-          const data = docSnap.data() as AppUser;
-          // Strip any plaintext password before sending to components
-          const { password, ...safe } = data;
-          return { ...safe, id: docSnap.id } as AppUser;
-        });
+        const items = snapshot.docs.map((docSnap) => ({ ...docSnap.data(), id: docSnap.id } as AppUser));
         onData(items);
       }
     },
@@ -353,13 +290,12 @@ export function subscribeAppUsers(
 }
 
 /**
- * Save an App User to Firestore (Always strip plaintext password and save passwordHash + salt)
+ * Save an App User to Firestore
  */
 export async function saveAppUser(user: AppUser): Promise<void> {
   const docId = user.id;
-  const { password, ...safeUser } = user;
   try {
-    await setDoc(doc(db, APP_USERS_COLLECTION, docId), cleanFirestoreData(safeUser), { merge: true });
+    await setDoc(doc(db, APP_USERS_COLLECTION, docId), cleanFirestoreData(user), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `${APP_USERS_COLLECTION}/${docId}`);
   }

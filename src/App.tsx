@@ -11,7 +11,8 @@ import {
   testFirestoreConnection,
   subscribeAuth,
   subscribeSubKegiatan,
-  subscribeRincianBelanja,
+  subscribeAllRincianBelanja,
+  subscribeAppUsers,
   saveRincianBelanja,
   saveSubKegiatan,
   removeRincianBelanja,
@@ -198,39 +199,41 @@ function AppContent() {
     });
   }, [rincianItems]);
 
-  // 1. Firebase Auth listener
+  // Init Firebase connection and listeners
   useEffect(() => {
     let isMounted = true;
+
     const unsubAuth = subscribeAuth((user) => {
       if (isMounted) setCurrentUser(user);
     });
-    return () => {
-      isMounted = false;
-      unsubAuth();
-    };
-  }, []);
 
-  // 2. Hit API for Sub-Kegiatan data: ONLY when user is logged in AND on /dashboard (or /dasbor)
-  const isDashboardRoute =
-    Boolean(appUser) &&
-    (route.pathname === '/dashboard' ||
-      route.pathname === '/dasbor' ||
-      (!route.pathname.startsWith('/sub-kegiatan') && route.pathname !== '/' && route.pathname !== ''));
-
-  useEffect(() => {
-    if (!isDashboardRoute) return;
-
-    let isMounted = true;
-    let unsubSub: (() => void) | null = null;
-
-    const loadDashboardData = async () => {
+    const initFirebase = async () => {
       setIsSyncing(true);
       const isConnected = await testFirestoreConnection();
       if (!isMounted) return;
+
       setIsFirebaseConnected(isConnected);
 
       if (isConnected) {
-        unsubSub = subscribeSubKegiatan(
+        await seedInitialDataIfEmpty();
+
+        subscribeAppUsers(
+          (users) => {
+            if (isMounted && users.length > 0) {
+              saveUsers(users);
+              const cur = getCurrentAuthUser();
+              if (cur) {
+                const refreshed = users.find((u) => u.id === cur.id);
+                if (refreshed) {
+                  setAppUser(refreshed);
+                }
+              }
+            }
+          },
+          (err) => console.warn('AppUsers sync warning:', err)
+        );
+
+        subscribeSubKegiatan(
           (data) => {
             if (isMounted && data.length > 0) {
               setSubKegiatans(data);
@@ -239,59 +242,27 @@ function AppContent() {
           },
           (err) => console.warn('SubKegiatan sync warning:', err)
         );
-      }
-      setIsSyncing(false);
-    };
 
-    loadDashboardData();
-
-    return () => {
-      isMounted = false;
-      if (unsubSub) unsubSub();
-    };
-  }, [isDashboardRoute]);
-
-  // 3. Hit API for Rincian Belanja: ONLY when on specific sub-kegiatan detail page (/sub-kegiatan/:idSubBl)
-  const activeDetailSubId =
-    Boolean(appUser) && route.pathname.startsWith('/sub-kegiatan') ? route.params.idSubBl : null;
-
-  useEffect(() => {
-    if (!activeDetailSubId) return;
-
-    let isMounted = true;
-    let unsubRinci: (() => void) | null = null;
-
-    const loadSubDetailRincian = async () => {
-      setIsSyncing(true);
-      const isConnected = await testFirestoreConnection();
-      if (!isMounted) return;
-      setIsFirebaseConnected(isConnected);
-
-      if (isConnected) {
-        unsubRinci = subscribeRincianBelanja(
-          activeDetailSubId,
+        subscribeAllRincianBelanja(
           (data) => {
-            if (isMounted) {
-              setRincianItems((prev) => {
-                const otherItems = prev.filter((i) => i.id_sub_bl !== activeDetailSubId);
-                return [...data, ...otherItems];
-              });
+            if (isMounted && data.length > 0) {
+              setRincianItems(data);
               setIsFirebaseConnected(true);
             }
           },
-          (err) => console.warn('Detail rincian sync warning:', err)
+          (err) => console.warn('RincianBelanja sync warning:', err)
         );
       }
       setIsSyncing(false);
     };
 
-    loadSubDetailRincian();
+    initFirebase();
 
     return () => {
       isMounted = false;
-      if (unsubRinci) unsubRinci();
+      unsubAuth();
     };
-  }, [activeDetailSubId]);
+  }, []);
 
   // Handlers for Login & Logout
   const handleLoginSuccess = (user: AppUser) => {

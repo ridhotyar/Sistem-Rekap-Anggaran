@@ -29,7 +29,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim() || !password) {
       setError('Silakan masukkan username dan password.');
@@ -39,19 +39,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setIsLoading(true);
     setError(null);
 
-    try {
-      // Hit authentication API specifically on login button click
-      const res = await loginWithCredentials(username, password);
+    setTimeout(() => {
+      const res = loginWithCredentials(username, password);
       setIsLoading(false);
       if (res.success && res.user) {
         onLoginSuccess(res.user);
       } else {
         setError(res.error || 'Login gagal.');
       }
-    } catch (err) {
-      setIsLoading(false);
-      setError('Terjadi kendala saat memverifikasi kredensial. Silakan coba kembali.');
-    }
+    }, 250);
   };
 
   return (

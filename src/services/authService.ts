@@ -1,26 +1,10 @@
 import { AppUser, DEFAULT_USERS } from '../types/auth';
-import { saveAppUser, removeAppUser, authenticateUserFromFirestore } from './firebase';
-import { hashPassword, verifyPassword } from './cryptoService';
+import { saveAppUser, removeAppUser } from './firebase';
 
 const STORAGE_KEY_USERS = 'sipd_users_v2';
 const STORAGE_KEY_SESSION = 'sipd_current_session_user';
 
 export { DEFAULT_USERS };
-
-/**
- * Strips password, passwordHash, and salt from user object before returning to client/session
- */
-export const sanitizeUser = (user: AppUser): AppUser => {
-  return {
-    id: user.id,
-    username: user.username,
-    nama: user.nama,
-    role: user.role,
-    bidang: user.bidang,
-    jabatan: user.jabatan,
-    createdAt: user.createdAt,
-  };
-};
 
 export const getStoredUsers = (): AppUser[] => {
   try {
@@ -31,9 +15,7 @@ export const getStoredUsers = (): AppUser[] => {
     }
     const parsed = JSON.parse(raw) as AppUser[];
     // Ensure default admin always exists
-    const hasAdmin = parsed.some(
-      (u) => u.username === DEFAULT_USERS[0].username || u.role === 'admin'
-    );
+    const hasAdmin = parsed.some((u) => u.username === DEFAULT_USERS[0].username || u.role === 'admin');
     if (!hasAdmin) {
       const merged = [DEFAULT_USERS[0], ...parsed];
       localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(merged));
@@ -57,81 +39,38 @@ export const getCurrentAuthUser = (): AppUser | null => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_SESSION);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as AppUser;
-    return sanitizeUser(parsed);
+    return JSON.parse(raw) as AppUser;
   } catch {
     return null;
   }
 };
 
-/**
- * Authenticates user credentials.
- * Hits Firestore specifically for this single username on login button click,
- * and verifies against encrypted SHA-256 hash.
- */
-export const loginWithCredentials = async (
+export const loginWithCredentials = (
   username: string,
-  passwordAttempt: string
-): Promise<{ success: boolean; user?: AppUser; error?: string }> => {
+  password: string
+): { success: boolean; user?: AppUser; error?: string } => {
+  const users = getStoredUsers();
   const trimmedUser = username.trim().toLowerCase();
-  if (!trimmedUser || !passwordAttempt) {
+  const matched = users.find(
+    (u) => u.username.toLowerCase() === trimmedUser && u.password === password
+  );
+
+  if (!matched) {
     return {
       success: false,
-      error: 'Username dan password tidak boleh kosong.',
+      error: 'Username atau password tidak cocok. Silakan periksa kembali atau gunakan akun yang terdaftar.',
     };
   }
 
-  // 1. Hit Firestore specifically for this username
   try {
-    const firestoreUser = await authenticateUserFromFirestore(trimmedUser, passwordAttempt);
-    if (firestoreUser) {
-      const safe = sanitizeUser(firestoreUser);
-      localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(safe));
-      return {
-        success: true,
-        user: safe,
-      };
-    }
-  } catch (err) {
-    console.warn('Remote auth check deferred to local credentials:', err);
-  }
-
-  // 2. Check local users with passwordHash verification
-  const users = getStoredUsers();
-  const matched = users.find((u) => u.username.toLowerCase() === trimmedUser);
-
-  if (matched) {
-    let isValid = false;
-
-    if (matched.passwordHash && matched.salt) {
-      isValid = await verifyPassword(passwordAttempt, matched.passwordHash, matched.salt);
-    } else if (matched.password && matched.password === passwordAttempt) {
-      isValid = true;
-      // Upgrade local record to hash
-      const { hash, salt } = await hashPassword(passwordAttempt);
-      matched.passwordHash = hash;
-      matched.salt = salt;
-      delete matched.password;
-      saveUsers(users);
-    }
-
-    if (isValid) {
-      const safe = sanitizeUser(matched);
-      try {
-        localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(safe));
-      } catch (e) {
-        console.warn('Failed to set session', e);
-      }
-      return {
-        success: true,
-        user: safe,
-      };
-    }
+    localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(matched));
+  } catch (e) {
+    console.warn('Failed to set session', e);
   }
 
   return {
-    success: false,
-    error: 'Username atau password tidak cocok. Silakan periksa kembali atau gunakan akun yang terdaftar.',
+    success: true,
+    user: matched,
   };
 };
 
@@ -144,14 +83,7 @@ export const logoutAppUser = (): void => {
 };
 
 export const addNewUser = async (
-  userData: {
-    username: string;
-    password?: string;
-    nama: string;
-    role: AppUser['role'];
-    bidang: string;
-    jabatan?: string;
-  }
+  userData: Omit<AppUser, 'id' | 'createdAt'>
 ): Promise<{ success: boolean; user?: AppUser; error?: string }> => {
   const users = getStoredUsers();
   const cleanUsername = userData.username.trim().toLowerCase();
@@ -170,34 +102,28 @@ export const addNewUser = async (
     return { success: false, error: `Username "${cleanUsername}" sudah digunakan.` };
   }
 
-  // Generate SHA-256 hash and unique salt
-  const { hash, salt } = await hashPassword(userData.password);
-
   const newUser: AppUser = {
     id: `user-${Date.now()}`,
     username: cleanUsername,
-    passwordHash: hash,
-    salt,
+    password: userData.password,
     nama: userData.nama.trim(),
     role: userData.role,
     bidang: userData.bidang.trim() || 'Bakesbangpoldagri NTB',
-    jabatan:
-      userData.jabatan?.trim() ||
-      (userData.role === 'admin' ? 'Administrator' : 'Staf Operator'),
+    jabatan: userData.jabatan?.trim() || (userData.role === 'admin' ? 'Administrator' : 'Staf Operator'),
     createdAt: new Date().toISOString(),
   };
 
   const updatedUsers = [...users, newUser];
   saveUsers(updatedUsers);
 
-  // Synchronize to Firebase Firestore without plaintext password
+  // Synchronize to Firebase Firestore
   try {
     await saveAppUser(newUser);
   } catch (err) {
     console.warn('Failed to sync new user to Firestore immediately:', err);
   }
 
-  return { success: true, user: sanitizeUser(newUser) };
+  return { success: true, user: newUser };
 };
 
 export const deleteUser = async (userId: string): Promise<{ success: boolean; error?: string }> => {

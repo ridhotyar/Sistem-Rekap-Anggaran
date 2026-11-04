@@ -38,11 +38,10 @@ service cloud.firestore {
     }
 
     function isValidAppUser(data) {
-      return data.keys().hasAll(['id', 'username', 'nama', 'role'])
+      return data.keys().hasAll(['id', 'username', 'password', 'nama', 'role'])
         && data.id is string && data.id.size() <= 64
         && data.username is string && data.username.size() <= 64
-        && (!('passwordHash' in data) || (data.passwordHash is string && data.passwordHash.size() <= 128))
-        && (!('salt' in data) || (data.salt is string && data.salt.size() <= 64))
+        && data.password is string && data.password.size() <= 128
         && data.nama is string && data.nama.size() <= 255
         && data.role is string && (data.role == 'admin' || data.role == 'user');
     }
