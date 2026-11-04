@@ -18,10 +18,6 @@ service cloud.firestore {
       return resource.data;
     }
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
     function isValidSubKegiatan(data) {
       return data.keys().hasAll(['id_sub_bl', 'kode_sub_kegiatan', 'nama_sub_kegiatan', 'tahun', 'id_daerah'])
         && data.id_sub_bl is number
@@ -41,6 +37,15 @@ service cloud.firestore {
         && data.total_harga is number;
     }
 
+    function isValidAppUser(data) {
+      return data.keys().hasAll(['id', 'username', 'password', 'nama', 'role'])
+        && data.id is string && data.id.size() <= 64
+        && data.username is string && data.username.size() <= 64
+        && data.password is string && data.password.size() <= 128
+        && data.nama is string && data.nama.size() <= 255
+        && data.role is string && (data.role == 'admin' || data.role == 'user');
+    }
+
     // Sub-kegiatan koleksi anggaran
     match /sub_kegiatan/{subKegiatanId} {
       allow read: if true;
@@ -55,6 +60,14 @@ service cloud.firestore {
       allow create: if isValidId(rincianId) && isValidRincianBelanja(incoming());
       allow update: if isValidId(rincianId) && isValidRincianBelanja(incoming());
       allow delete: if isValidId(rincianId);
+    }
+
+    // Akun pengguna sistem (Admin & User Staf)
+    match /app_users/{userId} {
+      allow read: if true;
+      allow create: if isValidId(userId) && isValidAppUser(incoming());
+      allow update: if isValidId(userId) && isValidAppUser(incoming());
+      allow delete: if isValidId(userId);
     }
   }
 }

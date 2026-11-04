@@ -24,6 +24,7 @@ import {
 } from 'firebase/auth';
 import rawConfig from '../../firebase-applet-config.json';
 import { RincianBelanjaItem, SubKegiatan } from '../types/budget';
+import { AppUser, DEFAULT_USERS } from '../types/auth';
 import { INITIAL_USER_RINCIAN_DATA, INITIAL_SUB_KEGIATAN_LIST } from '../data/initialBudgetData';
 
 // Dual configuration: supports both Vite environment variables (for Vercel/Netlify) and firebase-applet-config.json
@@ -34,7 +35,7 @@ export const firebaseConfig = {
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig?.storageBucket || '',
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig?.messagingSenderId || '',
   appId: import.meta.env.VITE_FIREBASE_APP_ID || rawConfig?.appId || '',
-  // SANGAT PENTING: Firestore menggunakan database bernama 'ai-studio-150c024a-fb71-4702-88d7-f8d9525658ff'
+  // Firestore database: 'ai-studio-150c024a-fb71-4702-88d7-f8d9525658ff'
   firestoreDatabaseId:
     import.meta.env.VITE_FIREBASE_DATABASE_ID ||
     rawConfig?.firestoreDatabaseId ||
@@ -123,7 +124,6 @@ export async function testFirestoreConnection(): Promise<boolean> {
     } else {
       console.warn('Firestore connection check notice:', error);
     }
-    // Return false on connection failure, allowing graceful local fallback
     return false;
   }
 }
@@ -140,7 +140,7 @@ export async function checkFirestoreConnectionStatus(): Promise<FirestoreConnect
     await getDocs(q);
     return {
       connected: true,
-      message: 'Berhasil terhubung ke basis data Firestore.',
+      message: 'Berhasil terhubung ke basis data Firestore Firebase.',
     };
   } catch (error: unknown) {
     const err = error as { message?: string; code?: string };
@@ -176,14 +176,36 @@ export async function checkFirestoreConnectionStatus(): Promise<FirestoreConnect
 }
 
 // Collections
-const SUB_KEGIATAN_COLLECTION = 'sub_kegiatan';
-const RINCIAN_COLLECTION = 'rincian_belanja';
+export const SUB_KEGIATAN_COLLECTION = 'sub_kegiatan';
+export const RINCIAN_COLLECTION = 'rincian_belanja';
+export const APP_USERS_COLLECTION = 'app_users';
+
+/**
+ * Seed initial users into Firestore if collection is empty
+ */
+export async function seedInitialUsersIfEmpty(): Promise<void> {
+  try {
+    const userSnap = await getDocs(collection(db, APP_USERS_COLLECTION));
+    if (userSnap.empty) {
+      console.log(`Menyimpan ${DEFAULT_USERS.length} akun pengguna bawaan ke Firestore...`);
+      for (const user of DEFAULT_USERS) {
+        await setDoc(doc(db, APP_USERS_COLLECTION, user.id), user, { merge: true });
+      }
+    }
+  } catch (error) {
+    console.warn('Seed app_users Firestore notice:', error);
+  }
+}
 
 /**
  * Seed initial data into Firestore if collections are empty or missing new base sub-kegiatans
  */
 export async function seedInitialDataIfEmpty(): Promise<void> {
   try {
+    // 1. Seed users
+    await seedInitialUsersIfEmpty();
+
+    // 2. Seed sub_kegiatan
     const subSnap = await getDocs(collection(db, SUB_KEGIATAN_COLLECTION));
     if (subSnap.size < INITIAL_SUB_KEGIATAN_LIST.length) {
       console.log(`Seeding initial Sub-Kegiatan data to Firestore (${INITIAL_SUB_KEGIATAN_LIST.length} items)...`);
@@ -192,6 +214,7 @@ export async function seedInitialDataIfEmpty(): Promise<void> {
       }
     }
 
+    // 3. Seed rincian
     const rincianSnap = await getDocs(collection(db, RINCIAN_COLLECTION));
     if (rincianSnap.empty) {
       console.log('Seeding initial Rincian Belanja data to Firestore...');
@@ -206,23 +229,32 @@ export async function seedInitialDataIfEmpty(): Promise<void> {
 }
 
 /**
- * Force sync and upload current local data to Firestore
+ * Force sync and upload current local data and users to Firestore
  */
 export async function forceSyncLocalToFirestore(
   subList: SubKegiatan[],
-  rincianList: RincianBelanjaItem[]
+  rincianList: RincianBelanjaItem[],
+  userList?: AppUser[]
 ): Promise<{ success: boolean; message: string }> {
   try {
+    // Sync sub kegiatan
     for (const sub of subList) {
       await setDoc(doc(db, SUB_KEGIATAN_COLLECTION, sub.id), sub, { merge: true });
     }
+    // Sync rincian belanja
     for (const item of rincianList) {
       const docId = item.id || `rinci-${item.id_rinci_sub_bl}`;
       await setDoc(doc(db, RINCIAN_COLLECTION, docId), { ...item, id: docId }, { merge: true });
     }
+    // Sync users
+    if (userList && userList.length > 0) {
+      for (const user of userList) {
+        await setDoc(doc(db, APP_USERS_COLLECTION, user.id), user, { merge: true });
+      }
+    }
     return {
       success: true,
-      message: `Berhasil sinkronisasi ${subList.length} sub-kegiatan dan ${rincianList.length} rincian ke Firestore!`,
+      message: `Berhasil sinkronisasi ${subList.length} sub-kegiatan, ${rincianList.length} rincian belanja, dan ${userList?.length || 0} akun pengguna ke Firebase!`,
     };
   } catch (error) {
     console.error('Force sync to Firestore error:', error);
@@ -230,6 +262,53 @@ export async function forceSyncLocalToFirestore(
       success: false,
       message: error instanceof Error ? error.message : String(error),
     };
+  }
+}
+
+/**
+ * Listen to all App Users in real-time
+ */
+export function subscribeAppUsers(
+  onData: (data: AppUser[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    collection(db, APP_USERS_COLLECTION),
+    (snapshot) => {
+      if (snapshot.empty) {
+        onData(DEFAULT_USERS);
+      } else {
+        const items = snapshot.docs.map((docSnap) => ({ ...docSnap.data(), id: docSnap.id } as AppUser));
+        onData(items);
+      }
+    },
+    (error) => {
+      console.error('Subscription error on app_users:', error);
+      onError?.(error);
+    }
+  );
+}
+
+/**
+ * Save an App User to Firestore
+ */
+export async function saveAppUser(user: AppUser): Promise<void> {
+  const docId = user.id;
+  try {
+    await setDoc(doc(db, APP_USERS_COLLECTION, docId), user, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `${APP_USERS_COLLECTION}/${docId}`);
+  }
+}
+
+/**
+ * Delete an App User from Firestore
+ */
+export async function removeAppUser(userId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, APP_USERS_COLLECTION, userId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `${APP_USERS_COLLECTION}/${userId}`);
   }
 }
 
@@ -335,7 +414,6 @@ export function subscribeRincianBelanja(
     q,
     (snapshot) => {
       if (snapshot.empty) {
-        // Filter from initial data if 122054
         const local = INITIAL_USER_RINCIAN_DATA.filter((i) => i.id_sub_bl === idSubBl);
         onData(local);
       } else {
@@ -419,4 +497,3 @@ export async function removeSubKegiatan(docId: string, idSubBl: number): Promise
     handleFirestoreError(error, OperationType.DELETE, `${SUB_KEGIATAN_COLLECTION}/${docId}`);
   }
 }
-

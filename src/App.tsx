@@ -12,6 +12,7 @@ import {
   subscribeAuth,
   subscribeSubKegiatan,
   subscribeAllRincianBelanja,
+  subscribeAppUsers,
   saveRincianBelanja,
   saveSubKegiatan,
   removeRincianBelanja,
@@ -26,7 +27,7 @@ import {
 import { BASE_SUB_KEGIATAN_LIST } from './data/initialSubKegiatanData';
 import { SubKegiatan, RincianBelanjaItem, KeteranganSubBl } from './types/budget';
 import { AppUser } from './types/auth';
-import { getCurrentAuthUser, logoutAppUser } from './services/authService';
+import { getCurrentAuthUser, logoutAppUser, getStoredUsers, saveUsers } from './services/authService';
 import { RouterProvider, useRouter } from './services/router';
 import type { User } from 'firebase/auth';
 
@@ -215,6 +216,22 @@ function AppContent() {
 
       if (isConnected) {
         await seedInitialDataIfEmpty();
+
+        subscribeAppUsers(
+          (users) => {
+            if (isMounted && users.length > 0) {
+              saveUsers(users);
+              const cur = getCurrentAuthUser();
+              if (cur) {
+                const refreshed = users.find((u) => u.id === cur.id);
+                if (refreshed) {
+                  setAppUser(refreshed);
+                }
+              }
+            }
+          },
+          (err) => console.warn('AppUsers sync warning:', err)
+        );
 
         subscribeSubKegiatan(
           (data) => {
@@ -407,7 +424,7 @@ function AppContent() {
     const connected = await testFirestoreConnection();
     setIsFirebaseConnected(connected);
     if (connected) {
-      await forceSyncLocalToFirestore(subKegiatans, rincianItems);
+      await forceSyncLocalToFirestore(subKegiatans, rincianItems, getStoredUsers());
     }
     setTimeout(() => {
       setIsSyncing(false);

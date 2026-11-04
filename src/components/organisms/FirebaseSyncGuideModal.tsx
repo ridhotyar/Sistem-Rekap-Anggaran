@@ -18,6 +18,7 @@ import {
   checkFirestoreConnectionStatus,
 } from '../../services/firebase';
 import { SubKegiatan, RincianBelanjaItem } from '../../types/budget';
+import { getStoredUsers } from '../../services/authService';
 
 export interface FirebaseSyncGuideModalProps {
   isOpen: boolean;
@@ -82,7 +83,7 @@ export const FirebaseSyncGuideModal: React.FC<FirebaseSyncGuideModalProps> = ({
     try {
       setIsSyncing(true);
       setSyncStatus(null);
-      const res = await forceSyncLocalToFirestore(subKegiatans, rincianItems);
+      const res = await forceSyncLocalToFirestore(subKegiatans, rincianItems, getStoredUsers());
       setSyncStatus(res);
       if (res.success) {
         setLiveConnected(true);

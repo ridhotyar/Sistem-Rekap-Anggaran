@@ -184,6 +184,24 @@
           "type": "number",
           "description": "Flag dana otsus murni"
         },
+        "user_spek": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Spesifikasi usulan penyesuaian dari user staf"
+        },
+        "user_koefisien": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Koefisien usulan penyesuaian dari user staf"
+        },
+        "user_harga_satuan": {
+          "type": "number",
+          "description": "Harga satuan usulan penyesuaian dari user staf"
+        },
+        "user_total_harga": {
+          "type": "number",
+          "description": "Total harga usulan penyesuaian dari user staf"
+        },
         "updated_at": {
           "type": "string",
           "maxLength": 64,
@@ -197,6 +215,60 @@
         "kode_akun",
         "nama_akun",
         "total_harga"
+      ]
+    },
+    "AppUser": {
+      "title": "AppUser",
+      "description": "Entitas akun pengguna sistem SIPKD Bakesbangpoldagri NTB (Role admin & user)",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "ID Unik pengguna"
+        },
+        "username": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Username unik akun"
+        },
+        "password": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Kata sandi akun"
+        },
+        "nama": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Nama lengkap pegawai/pengguna"
+        },
+        "role": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Peran pengguna (admin | user)"
+        },
+        "bidang": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Bidang / Bagian kerja penempatan"
+        },
+        "jabatan": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Jabatan struktural / fungsional"
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Timestamp pembuatan akun"
+        }
+      },
+      "required": [
+        "id",
+        "username",
+        "password",
+        "nama",
+        "role"
       ]
     }
   },
@@ -212,6 +284,12 @@
         "$ref": "#/entities/RincianBelanja"
       },
       "description": "Koleksi rincian detail belanja per sub-kegiatan"
+    },
+    "/app_users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/AppUser"
+      },
+      "description": "Koleksi akun pengguna dan kredensial sistem"
     }
   }
 }

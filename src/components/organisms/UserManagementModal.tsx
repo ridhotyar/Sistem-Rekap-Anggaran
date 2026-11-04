@@ -55,12 +55,12 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     if (onUsersUpdated) onUsersUpdated();
   };
 
-  const handleCreateUser = (e: React.FormEvent) => {
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
 
-    const res = addNewUser({
+    const res = await addNewUser({
       username,
       password,
       nama,
@@ -70,7 +70,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     });
 
     if (res.success && res.user) {
-      setSuccess(`Pengguna "${res.user.nama}" (${res.user.username}) berhasil ditambahkan sebagai ${res.user.role === 'admin' ? 'Admin' : 'User Biasa'}!`);
+      setSuccess(`Pengguna "${res.user.nama}" (${res.user.username}) berhasil ditambahkan dan tersimpan di Firebase!`);
       setUsername('');
       setPassword('');
       setNama('');
@@ -84,13 +84,13 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     }
   };
 
-  const handleDelete = (u: AppUser) => {
+  const handleDelete = async (u: AppUser) => {
     if (u.username === 'admin') {
       setError('Akun Admin utama tidak boleh dihapus.');
       return;
     }
-    if (confirm(`Yakin ingin menghapus pengguna "${u.nama}" (${u.username})?`)) {
-      const res = deleteUser(u.id);
+    if (confirm(`Yakin ingin menghapus pengguna "${u.nama}" (${u.username}) dari sistem dan Firebase?`)) {
+      const res = await deleteUser(u.id);
       if (res.success) {
         setSuccess(`Pengguna "${u.nama}" telah dihapus.`);
         refreshList();
@@ -110,11 +110,16 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               <Users className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
-                Manajemen Pengguna & Hak Akses Sistem
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                  Manajemen Pengguna & Hak Akses Sistem
+                </h2>
+                <Badge variant="success" size="xs" dot>
+                  Firebase Firestore
+                </Badge>
+              </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Kelola akun administrator dan operator perencanaan Bakesbangpoldagri NTB
+                Data akun dan hak akses tersimpan otomatis di Firebase Firestore (koleksi app_users)
               </p>
             </div>
           </div>

@@ -1,40 +1,10 @@
-import { AppUser } from '../types/auth';
+import { AppUser, DEFAULT_USERS } from '../types/auth';
+import { saveAppUser, removeAppUser } from './firebase';
 
 const STORAGE_KEY_USERS = 'sipd_users_v2';
 const STORAGE_KEY_SESSION = 'sipd_current_session_user';
 
-export const DEFAULT_USERS: AppUser[] = [
-  {
-    id: 'user-admin-01',
-    username: 'admin',
-    password: 'admin123',
-    nama: 'Administrator Bakesbangpoldagri',
-    role: 'admin',
-    bidang: 'Sekretariat / Sub Bagian Perencanaan',
-    jabatan: 'Admin Sistem & Perencana Anggaran',
-    createdAt: '2026-01-01T08:00:00.000Z',
-  },
-  {
-    id: 'user-operator-01',
-    username: 'operator',
-    password: 'operator123',
-    nama: 'Staf Perencana Wasnas',
-    role: 'user',
-    bidang: 'Bidang Kewaspadaan Nasional & Penanganan Konflik',
-    jabatan: 'Operator Pengusul Rincian Belanja',
-    createdAt: '2026-01-02T09:00:00.000Z',
-  },
-  {
-    id: 'user-poldagri-01',
-    username: 'staf_poldagri',
-    password: 'poldagri123',
-    nama: 'Staf Politik Dalam Negeri',
-    role: 'user',
-    bidang: 'Bidang Politik Dalam Negeri & Ormas',
-    jabatan: 'Operator Pengusul Rincian Belanja',
-    createdAt: '2026-01-03T10:00:00.000Z',
-  },
-];
+export { DEFAULT_USERS };
 
 export const getStoredUsers = (): AppUser[] => {
   try {
@@ -88,7 +58,7 @@ export const loginWithCredentials = (
   if (!matched) {
     return {
       success: false,
-      error: 'Username atau password tidak cocok. Silakan periksa kembali atau gunakan kredensial yang tersedia.',
+      error: 'Username atau password tidak cocok. Silakan periksa kembali atau gunakan akun yang terdaftar.',
     };
   }
 
@@ -112,9 +82,9 @@ export const logoutAppUser = (): void => {
   }
 };
 
-export const addNewUser = (
+export const addNewUser = async (
   userData: Omit<AppUser, 'id' | 'createdAt'>
-): { success: boolean; user?: AppUser; error?: string } => {
+): Promise<{ success: boolean; user?: AppUser; error?: string }> => {
   const users = getStoredUsers();
   const cleanUsername = userData.username.trim().toLowerCase();
 
@@ -146,10 +116,17 @@ export const addNewUser = (
   const updatedUsers = [...users, newUser];
   saveUsers(updatedUsers);
 
+  // Synchronize to Firebase Firestore
+  try {
+    await saveAppUser(newUser);
+  } catch (err) {
+    console.warn('Failed to sync new user to Firestore immediately:', err);
+  }
+
   return { success: true, user: newUser };
 };
 
-export const deleteUser = (userId: string): { success: boolean; error?: string } => {
+export const deleteUser = async (userId: string): Promise<{ success: boolean; error?: string }> => {
   const users = getStoredUsers();
   const target = users.find((u) => u.id === userId);
 
@@ -167,6 +144,13 @@ export const deleteUser = (userId: string): { success: boolean; error?: string }
   const current = getCurrentAuthUser();
   if (current?.id === userId) {
     logoutAppUser();
+  }
+
+  // Remove from Firebase Firestore
+  try {
+    await removeAppUser(userId);
+  } catch (err) {
+    console.warn('Failed to remove user from Firestore immediately:', err);
   }
 
   return { success: true };
