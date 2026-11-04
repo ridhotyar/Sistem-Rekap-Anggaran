@@ -9,6 +9,7 @@ export interface SubKegiatanListPageProps {
   onSelectSubKegiatan: (subKegiatan: SubKegiatan) => void;
   onAddNewSubKegiatan?: () => void;
   onDeleteSubKegiatan?: (subKegiatan: SubKegiatan) => void;
+  isAdmin?: boolean;
 }
 
 export const SubKegiatanListPage: React.FC<SubKegiatanListPageProps> = ({
@@ -16,6 +17,7 @@ export const SubKegiatanListPage: React.FC<SubKegiatanListPageProps> = ({
   onSelectSubKegiatan,
   onAddNewSubKegiatan,
   onDeleteSubKegiatan,
+  isAdmin = true,
 }) => {
   const [selectedProgram, setSelectedProgram] = React.useState<string>('all');
 
@@ -89,6 +91,7 @@ export const SubKegiatanListPage: React.FC<SubKegiatanListPageProps> = ({
         onDeleteSubKegiatan={onDeleteSubKegiatan}
         externalSelectedProgram={selectedProgram}
         onProgramChange={(prog) => setSelectedProgram(prog)}
+        isAdmin={isAdmin}
       />
     </div>
   );

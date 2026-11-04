@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from './components/templates/AppLayout';
 import { SubKegiatanListPage } from './components/pages/SubKegiatanListPage';
 import { SubKegiatanDetailPage } from './components/pages/SubKegiatanDetailPage';
+import { LoginPage } from './components/pages/LoginPage';
 import { ImportExportModal } from './components/organisms/ImportExportModal';
 import { ConfirmDeleteSubKegiatanModal } from './components/organisms/ConfirmDeleteSubKegiatanModal';
 import { FirebaseSyncGuideModal } from './components/organisms/FirebaseSyncGuideModal';
+import { UserManagementModal } from './components/organisms/UserManagementModal';
 import {
   testFirestoreConnection,
   subscribeAuth,
@@ -21,15 +23,22 @@ import {
   INITIAL_USER_RINCIAN_DATA,
   INITIAL_SUB_KEGIATAN_LIST,
 } from './data/initialBudgetData';
-import { SubKegiatan, RincianBelanjaItem, KeteranganSubBl, ViewMode } from './types/budget';
+import { BASE_SUB_KEGIATAN_LIST } from './data/initialSubKegiatanData';
+import { SubKegiatan, RincianBelanjaItem, KeteranganSubBl } from './types/budget';
+import { AppUser } from './types/auth';
+import { getCurrentAuthUser, logoutAppUser } from './services/authService';
+import { RouterProvider, useRouter } from './services/router';
 import type { User } from 'firebase/auth';
 
 const LOCAL_STORAGE_KEY_RINCIAN = 'sipd_budget_rincian_v1';
 const LOCAL_STORAGE_KEY_SUB = 'sipd_budget_sub_kegiatan_v1';
 
-export default function App() {
-  const [viewMode, setViewMode] = useState<ViewMode>('summary');
-  const [selectedSubKegiatan, setSelectedSubKegiatan] = useState<SubKegiatan | null>(null);
+function AppContent() {
+  const { route, navigate } = useRouter();
+
+  // App Auth state (Role: admin | user)
+  const [appUser, setAppUser] = useState<AppUser | null>(() => getCurrentAuthUser());
+  const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
 
   // Data states
   const [subKegiatans, setSubKegiatans] = useState<SubKegiatan[]>(() => {
@@ -75,7 +84,6 @@ export default function App() {
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY_RINCIAN);
       if (saved) {
         const parsed = JSON.parse(saved) as RincianBelanjaItem[];
-        // Attach ket_bl_teks and nama_subs_sub_bl if missing
         return parsed.map((item) => {
           const matchInitial = INITIAL_USER_RINCIAN_DATA.find((i) => i.id_rinci_sub_bl === item.id_rinci_sub_bl);
           return matchInitial
@@ -93,7 +101,7 @@ export default function App() {
     }
   });
 
-  // Auth & Sync status
+  // Firebase auth & sync state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isFirebaseConnected, setIsFirebaseConnected] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -101,6 +109,8 @@ export default function App() {
   const [isFirebaseGuideOpen, setIsFirebaseGuideOpen] = useState<boolean>(false);
   const [subKegiatanToDelete, setSubKegiatanToDelete] = useState<SubKegiatan | null>(null);
   const [isDeletingSubKegiatan, setIsDeletingSubKegiatan] = useState<boolean>(false);
+
+  const isAdmin = appUser?.role === 'admin';
 
   // Sync to local storage on change
   useEffect(() => {
@@ -125,16 +135,22 @@ export default function App() {
       return prevList.map((sub) => {
         const matchingRincian = rincianItems.filter((i) => i.id_sub_bl === sub.id_sub_bl);
         if (matchingRincian.length > 0) {
-          const total = matchingRincian.reduce((acc, curr) => acc + (curr.total_harga || 0), 0);
+          const total = matchingRincian.reduce((acc, curr) => {
+            const hasUserAdj = curr.user_total_harga !== undefined || curr.is_user_added;
+            const price = hasUserAdj ? curr.user_total_harga || 0 : curr.total_harga || 0;
+            return acc + price;
+          }, 0);
 
-          // Build dynamic list of each id_ket_sub_bl present in rincian
           const currentKetList = sub.keterangan_list || [];
           const distinctKetIds = Array.from(new Set(matchingRincian.map((i) => i.id_ket_sub_bl)));
 
           const updatedKetList = distinctKetIds.map((ketId) => {
             const existing = currentKetList.find((k) => k.id_ket_sub_bl === ketId);
             const ketRincian = matchingRincian.filter((i) => i.id_ket_sub_bl === ketId);
-            const ketTotal = ketRincian.reduce((acc, curr) => acc + (curr.total_harga || 0), 0);
+            const ketTotal = ketRincian.reduce((acc, curr) => {
+              const hasUserAdj = curr.user_total_harga !== undefined || curr.is_user_added;
+              return acc + (hasUserAdj ? curr.user_total_harga || 0 : curr.total_harga || 0);
+            }, 0);
             const ketCount = ketRincian.length;
             const sample = ketRincian[0];
 
@@ -182,28 +198,14 @@ export default function App() {
     });
   }, [rincianItems]);
 
-  // Keep selectedSubKegiatan updated if subKegiatans changes
-  useEffect(() => {
-    if (selectedSubKegiatan) {
-      const fresh = subKegiatans.find((s) => s.id_sub_bl === selectedSubKegiatan.id_sub_bl);
-      if (fresh && JSON.stringify(fresh) !== JSON.stringify(selectedSubKegiatan)) {
-        setSelectedSubKegiatan(fresh);
-      }
-    }
-  }, [subKegiatans, selectedSubKegiatan]);
-
   // Init Firebase connection and listeners
   useEffect(() => {
     let isMounted = true;
 
-    // Listen to Firebase auth
     const unsubAuth = subscribeAuth((user) => {
-      if (isMounted) {
-        setCurrentUser(user);
-      }
+      if (isMounted) setCurrentUser(user);
     });
 
-    // Check Firestore connection and seed
     const initFirebase = async () => {
       setIsSyncing(true);
       const isConnected = await testFirestoreConnection();
@@ -214,7 +216,6 @@ export default function App() {
       if (isConnected) {
         await seedInitialDataIfEmpty();
 
-        // Subscribe to live sub_kegiatan
         subscribeSubKegiatan(
           (data) => {
             if (isMounted && data.length > 0) {
@@ -225,7 +226,6 @@ export default function App() {
           (err) => console.warn('SubKegiatan sync warning:', err)
         );
 
-        // Subscribe to live all rincian_belanja
         subscribeAllRincianBelanja(
           (data) => {
             if (isMounted && data.length > 0) {
@@ -247,43 +247,34 @@ export default function App() {
     };
   }, []);
 
-  // Handlers
+  // Handlers for Login & Logout
+  const handleLoginSuccess = (user: AppUser) => {
+    setAppUser(user);
+    navigate('/dashboard');
+  };
+
+  const handleLogout = () => {
+    logoutAppUser();
+    setAppUser(null);
+    navigate('/');
+  };
+
+  // Sub-kegiatan selection navigation
   const handleSelectSubKegiatan = (sub: SubKegiatan) => {
-    const baseMatch = INITIAL_SUB_KEGIATAN_LIST.find((o) => o.id_sub_bl === sub.id_sub_bl);
-    const enrichedSub: SubKegiatan = baseMatch
-      ? {
-          ...baseMatch,
-          ...sub,
-          kode_sub_kegiatan: baseMatch.kode_sub_kegiatan || sub.kode_sub_kegiatan,
-          nama_sub_kegiatan: baseMatch.nama_sub_kegiatan || sub.nama_sub_kegiatan,
-          nama_program: baseMatch.nama_program || sub.nama_program,
-          kode_program: baseMatch.kode_program || sub.kode_program,
-          nama_kegiatan: baseMatch.nama_kegiatan || baseMatch.nama_giat || sub.nama_kegiatan,
-          kode_kegiatan: baseMatch.kode_kegiatan || baseMatch.kode_giat || sub.kode_kegiatan,
-          nama_skpd: baseMatch.nama_skpd || baseMatch.nama_unit || sub.nama_skpd,
-          kode_skpd: baseMatch.kode_skpd || sub.kode_skpd,
-          nama_daerah: baseMatch.nama_daerah || sub.nama_daerah || 'Provinsi Nusa Tenggara Barat',
-        }
-      : sub;
-    setSelectedSubKegiatan(enrichedSub);
-    setViewMode('detail');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    navigate(`/sub-kegiatan/${sub.id_sub_bl}`);
   };
 
-  const handleBackToSummary = () => {
-    setViewMode('summary');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  const handleBackToDashboard = () => {
+    navigate('/dashboard');
   };
 
+  // CRUD for Rincian Belanja Items
   const handleSaveItem = async (item: RincianBelanjaItem) => {
     const docId = item.id || `rinci-${item.id_rinci_sub_bl || Date.now()}`;
     const newItem: RincianBelanjaItem = {
       ...item,
       id: docId,
       id_rinci_sub_bl: item.id_rinci_sub_bl || Math.floor(2300000 + Math.random() * 90000),
-      id_sub_bl: selectedSubKegiatan?.id_sub_bl || 122054,
-      tahun: selectedSubKegiatan?.tahun || 2027,
-      id_daerah: selectedSubKegiatan?.id_daerah || 407,
       updated_at: new Date().toISOString(),
     };
 
@@ -298,7 +289,7 @@ export default function App() {
       return [newItem, ...prev];
     });
 
-    // Save to Firestore if available
+    // Save to Firestore if connected
     try {
       await saveRincianBelanja(newItem);
     } catch (e) {
@@ -307,6 +298,12 @@ export default function App() {
   };
 
   const handleDeleteItem = async (item: RincianBelanjaItem) => {
+    // Permission check: Only Admin can delete base JSON items.
+    if (!isAdmin && !item.is_user_added) {
+      alert('Hanya akun Administrator yang berhak menghapus rincian belanja dasar dari JSON.');
+      return;
+    }
+
     const docId = item.id || `rinci-${item.id_rinci_sub_bl}`;
 
     // Optimistic local update
@@ -323,25 +320,25 @@ export default function App() {
   };
 
   const handleRequestDeleteSubKegiatan = (sub: SubKegiatan) => {
+    if (!isAdmin) {
+      alert('Hanya akun Administrator yang berhak menghapus Sub-Kegiatan.');
+      return;
+    }
     setSubKegiatanToDelete(sub);
   };
 
   const handleConfirmDeleteSubKegiatan = async (sub: SubKegiatan) => {
+    if (!isAdmin) return;
     setIsDeletingSubKegiatan(true);
     try {
-      // 1. Optimistic local updates: remove matching rincian items
       setRincianItems((prev) => prev.filter((i) => i.id_sub_bl !== sub.id_sub_bl));
-
-      // 2. Remove sub-kegiatan from state
       setSubKegiatans((prev) => prev.filter((s) => s.id !== sub.id && s.id_sub_bl !== sub.id_sub_bl));
 
-      // 3. If currently inspecting this sub-kegiatan, redirect back to summary
-      if (selectedSubKegiatan?.id_sub_bl === sub.id_sub_bl) {
-        setSelectedSubKegiatan(null);
-        setViewMode('summary');
+      // If currently on that sub-kegiatan page, go back to dashboard
+      if (route.params.idSubBl === sub.id_sub_bl) {
+        navigate('/dashboard');
       }
 
-      // 4. Firestore deletion
       await removeSubKegiatan(sub.id, sub.id_sub_bl);
     } catch (e) {
       console.warn('SubKegiatan deleted locally, Firestore sync deferred:', e);
@@ -351,57 +348,16 @@ export default function App() {
     }
   };
 
-  const handleImportItems = async (newItems: RincianBelanjaItem[]) => {
-    setRincianItems(newItems);
-    // Push imported items to Firestore
-    for (const item of newItems) {
-      try {
-        await saveRincianBelanja(item);
-      } catch (e) {
-        console.warn('Import sync error on item:', item.id_rinci_sub_bl, e);
-      }
-    }
-  };
-
-  const handleImportKeterangan = async (ket: KeteranganSubBl) => {
-    // Update SubKegiatan with new metadata if applicable
-    setSubKegiatans((prev) =>
-      prev.map((sub) => {
-        if (sub.id_sub_bl === ket.id_sub_bl) {
-          return {
-            ...sub,
-            nama_sub_kegiatan: ket.nama_sub_giat || sub.nama_sub_kegiatan,
-            nama_kegiatan: ket.nama_giat || sub.nama_kegiatan,
-            nama_program: ket.nama_program || sub.nama_program,
-            nama_skpd: ket.nama_skpd || sub.nama_skpd,
-            nama_daerah: ket.nama_daerah || sub.nama_daerah,
-            id_sub_giat: ket.id_sub_giat,
-            id_giat: ket.id_giat,
-            id_program: ket.id_program,
-            id_skpd: ket.id_skpd,
-            id_unit: ket.id_unit,
-            keterangan_list: [ket],
-          };
-        }
-        return sub;
-      })
-    );
-
-    // Update matching rincian items with ket_bl_teks
-    setRincianItems((prev) =>
-      prev.map((item) =>
-        item.id_ket_sub_bl === ket.id_ket_sub_bl || item.id_sub_bl === ket.id_sub_bl
-          ? { ...item, ket_bl_teks: ket.ket_bl_teks, id_ket_sub_bl: ket.id_ket_sub_bl }
-          : item
-      )
-    );
-  };
-
+  // Only Admin can apply Dual JSON
   const handleApplyDualJson = async (
     mergedSubKegiatan: SubKegiatan,
     mergedRincian: RincianBelanjaItem[]
   ) => {
-    // 1. Update subKegiatans list with new merged data
+    if (!isAdmin) {
+      alert('Hanya akun Administrator yang berhak mengimport data menggunakan JSON.');
+      return;
+    }
+
     setSubKegiatans((prev) => {
       const existingIndex = prev.findIndex((s) => s.id_sub_bl === mergedSubKegiatan.id_sub_bl);
       if (existingIndex >= 0) {
@@ -412,17 +368,14 @@ export default function App() {
       return [mergedSubKegiatan, ...prev];
     });
 
-    // 2. Replace or prepend rincian items for this sub-kegiatan
     setRincianItems((prev) => {
       const others = prev.filter((i) => i.id_sub_bl !== mergedSubKegiatan.id_sub_bl);
       return [...mergedRincian, ...others];
     });
 
-    // 3. Navigate directly to this detailed sub-kegiatan view
-    setSelectedSubKegiatan(mergedSubKegiatan);
-    setViewMode('detail');
+    // Navigate to the newly updated sub-kegiatan detail page
+    navigate(`/sub-kegiatan/${mergedSubKegiatan.id_sub_bl}`);
 
-    // 4. Background sync to Firestore
     try {
       await saveSubKegiatan(mergedSubKegiatan);
       for (const item of mergedRincian) {
@@ -434,6 +387,10 @@ export default function App() {
   };
 
   const handleResetToDefault = async () => {
+    if (!isAdmin) {
+      alert('Hanya Administrator yang dapat mereset data basis.');
+      return;
+    }
     setRincianItems(INITIAL_USER_RINCIAN_DATA);
     setSubKegiatans(INITIAL_SUB_KEGIATAN_LIST);
     for (const item of INITIAL_USER_RINCIAN_DATA) {
@@ -457,49 +414,187 @@ export default function App() {
     }, 600);
   };
 
+  // Active sub-kegiatan lookup for /sub-kegiatan/:idSubBl route
+  const activeSubKegiatan = useMemo(() => {
+    if (!route.params.idSubBl) return null;
+    const targetId = route.params.idSubBl;
 
-  // Currently filtered rincian items for active sub-kegiatan
-  const currentSubRincianItems = selectedSubKegiatan
-    ? rincianItems.filter((i) => i.id_sub_bl === selectedSubKegiatan.id_sub_bl)
-    : rincianItems;
+    // Look in current state first
+    const foundInState = subKegiatans.find((s) => s.id_sub_bl === targetId);
+    if (foundInState) return foundInState;
 
+    // Look in official baseline list
+    const foundInBase = BASE_SUB_KEGIATAN_LIST.find((s) => s.id_sub_bl === targetId);
+    if (foundInBase) return foundInBase as unknown as SubKegiatan;
+
+    const foundInInit = INITIAL_SUB_KEGIATAN_LIST.find((s) => s.id_sub_bl === targetId);
+    if (foundInInit) return foundInInit;
+
+    return null;
+  }, [route.params.idSubBl, subKegiatans]);
+
+  // Route 1: Root "/" - Landing Page with exact Title and Login Form
+  if (route.pathname === '/' || route.pathname === '') {
+    return (
+      <LoginPage
+        onLoginSuccess={handleLoginSuccess}
+        currentUser={appUser}
+        onGoToDashboard={() => navigate('/dashboard')}
+      />
+    );
+  }
+
+  // Protected route check: if user is not logged in and attempts /dashboard or /sub-kegiatan, redirect to /
+  if (!appUser) {
+    return (
+      <LoginPage
+        onLoginSuccess={handleLoginSuccess}
+        currentUser={null}
+        onGoToDashboard={() => navigate('/dashboard')}
+      />
+    );
+  }
+
+  // Route 2: Detail Page "/sub-kegiatan/:idSubBl"
+  if (route.pathname.startsWith('/sub-kegiatan')) {
+    if (!activeSubKegiatan) {
+      return (
+        <AppLayout
+          currentUser={currentUser}
+          appUser={appUser}
+          isFirebaseConnected={isFirebaseConnected}
+          onOpenImportExport={() => setIsImportExportOpen(true)}
+          onOpenUserManagement={() => setIsUserManagementOpen(true)}
+          onLogout={handleLogout}
+          onRefreshData={handleRefresh}
+          onOpenFirebaseGuide={() => setIsFirebaseGuideOpen(true)}
+          isSyncing={isSyncing}
+        >
+          <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+              Sub-Kegiatan Tidak Ditemukan
+            </h2>
+            <p className="text-xs text-slate-500">
+              ID Sub-Kegiatan #{route.params.idSubBl} tidak terdaftar dalam database APBD TA 2027.
+            </p>
+            <button
+              onClick={handleBackToDashboard}
+              className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 cursor-pointer shadow-md"
+            >
+              Kembali ke Dashboard
+            </button>
+          </div>
+        </AppLayout>
+      );
+    }
+
+    const currentSubRincianItems = rincianItems.filter(
+      (i) => i.id_sub_bl === activeSubKegiatan.id_sub_bl
+    );
+
+    return (
+      <AppLayout
+        currentUser={currentUser}
+        appUser={appUser}
+        isFirebaseConnected={isFirebaseConnected}
+        onOpenImportExport={() => setIsImportExportOpen(true)}
+        onOpenUserManagement={() => setIsUserManagementOpen(true)}
+        onLogout={handleLogout}
+        onRefreshData={handleRefresh}
+        onOpenFirebaseGuide={() => setIsFirebaseGuideOpen(true)}
+        isSyncing={isSyncing}
+      >
+        <SubKegiatanDetailPage
+          subKegiatan={activeSubKegiatan}
+          items={currentSubRincianItems}
+          onBackToSummary={handleBackToDashboard}
+          onSaveItem={handleSaveItem}
+          onDeleteItem={handleDeleteItem}
+          onDeleteSubKegiatan={isAdmin ? handleRequestDeleteSubKegiatan : undefined}
+          currentUser={appUser}
+          isAdmin={isAdmin}
+        />
+
+        {/* Global Modals */}
+        {isAdmin && (
+          <ImportExportModal
+            isOpen={isImportExportOpen}
+            onClose={() => setIsImportExportOpen(false)}
+            currentItems={rincianItems}
+            activeSubKegiatan={activeSubKegiatan}
+            onApplyDualJson={handleApplyDualJson}
+            onResetToDefault={handleResetToDefault}
+          />
+        )}
+
+        {isAdmin && (
+          <UserManagementModal
+            isOpen={isUserManagementOpen}
+            onClose={() => setIsUserManagementOpen(false)}
+            currentUser={appUser}
+          />
+        )}
+
+        <ConfirmDeleteSubKegiatanModal
+          isOpen={Boolean(subKegiatanToDelete)}
+          onClose={() => setSubKegiatanToDelete(null)}
+          subKegiatan={subKegiatanToDelete}
+          onConfirm={handleConfirmDeleteSubKegiatan}
+          isDeleting={isDeletingSubKegiatan}
+        />
+
+        <FirebaseSyncGuideModal
+          isOpen={isFirebaseGuideOpen}
+          onClose={() => setIsFirebaseGuideOpen(false)}
+          isFirebaseConnected={isFirebaseConnected}
+          subKegiatans={subKegiatans}
+          rincianItems={rincianItems}
+          onSyncComplete={handleRefresh}
+        />
+      </AppLayout>
+    );
+  }
+
+  // Route 3: "/dashboard" or fallback
   return (
     <AppLayout
       currentUser={currentUser}
+      appUser={appUser}
       isFirebaseConnected={isFirebaseConnected}
       onOpenImportExport={() => setIsImportExportOpen(true)}
-      onOpenFirebaseGuide={() => setIsFirebaseGuideOpen(true)}
+      onOpenUserManagement={() => setIsUserManagementOpen(true)}
+      onLogout={handleLogout}
       onRefreshData={handleRefresh}
+      onOpenFirebaseGuide={() => setIsFirebaseGuideOpen(true)}
       isSyncing={isSyncing}
     >
-      {viewMode === 'summary' || !selectedSubKegiatan ? (
-        <SubKegiatanListPage
-          subKegiatans={subKegiatans}
-          onSelectSubKegiatan={handleSelectSubKegiatan}
-          onDeleteSubKegiatan={handleRequestDeleteSubKegiatan}
-        />
-      ) : (
-        <SubKegiatanDetailPage
-          subKegiatan={selectedSubKegiatan}
-          items={currentSubRincianItems}
-          onBackToSummary={handleBackToSummary}
-          onSaveItem={handleSaveItem}
-          onDeleteItem={handleDeleteItem}
-          onDeleteSubKegiatan={handleRequestDeleteSubKegiatan}
+      <SubKegiatanListPage
+        subKegiatans={subKegiatans}
+        onSelectSubKegiatan={handleSelectSubKegiatan}
+        onDeleteSubKegiatan={isAdmin ? handleRequestDeleteSubKegiatan : undefined}
+        isAdmin={isAdmin}
+      />
+
+      {/* Admin Modals */}
+      {isAdmin && (
+        <ImportExportModal
+          isOpen={isImportExportOpen}
+          onClose={() => setIsImportExportOpen(false)}
+          currentItems={rincianItems}
+          activeSubKegiatan={null}
+          onApplyDualJson={handleApplyDualJson}
+          onResetToDefault={handleResetToDefault}
         />
       )}
 
-      {/* Global Import / Export Modal */}
-      <ImportExportModal
-        isOpen={isImportExportOpen}
-        onClose={() => setIsImportExportOpen(false)}
-        currentItems={rincianItems}
-        activeSubKegiatan={selectedSubKegiatan}
-        onApplyDualJson={handleApplyDualJson}
-        onResetToDefault={handleResetToDefault}
-      />
+      {isAdmin && (
+        <UserManagementModal
+          isOpen={isUserManagementOpen}
+          onClose={() => setIsUserManagementOpen(false)}
+          currentUser={appUser}
+        />
+      )}
 
-      {/* Confirm Delete Sub-Kegiatan Modal */}
       <ConfirmDeleteSubKegiatanModal
         isOpen={Boolean(subKegiatanToDelete)}
         onClose={() => setSubKegiatanToDelete(null)}
@@ -508,7 +603,6 @@ export default function App() {
         isDeleting={isDeletingSubKegiatan}
       />
 
-      {/* Firebase & Vercel Sync Guide Modal */}
       <FirebaseSyncGuideModal
         isOpen={isFirebaseGuideOpen}
         onClose={() => setIsFirebaseGuideOpen(false)}
@@ -518,5 +612,13 @@ export default function App() {
         onSyncComplete={handleRefresh}
       />
     </AppLayout>
+  );
+}
+
+export default function App() {
+  return (
+    <RouterProvider>
+      <AppContent />
+    </RouterProvider>
   );
 }

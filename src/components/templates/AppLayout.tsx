@@ -2,11 +2,16 @@ import React from 'react';
 import { HeaderNavbar } from '../organisms/HeaderNavbar';
 import type { User } from 'firebase/auth';
 
+import { AppUser } from '../../types/auth';
+
 export interface AppLayoutProps {
   children: React.ReactNode;
   currentUser: User | null;
+  appUser?: AppUser | null;
   isFirebaseConnected: boolean;
   onOpenImportExport: () => void;
+  onOpenUserManagement?: () => void;
+  onLogout?: () => void;
   onRefreshData?: () => void;
   onOpenFirebaseGuide?: () => void;
   isSyncing?: boolean;
@@ -15,8 +20,11 @@ export interface AppLayoutProps {
 export const AppLayout: React.FC<AppLayoutProps> = ({
   children,
   currentUser,
+  appUser,
   isFirebaseConnected,
   onOpenImportExport,
+  onOpenUserManagement,
+  onLogout,
   onRefreshData,
   onOpenFirebaseGuide,
   isSyncing,
@@ -26,8 +34,11 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       {/* Top Navbar */}
       <HeaderNavbar
         currentUser={currentUser}
+        appUser={appUser}
         isFirebaseConnected={isFirebaseConnected}
         onOpenImportExport={onOpenImportExport}
+        onOpenUserManagement={onOpenUserManagement}
+        onLogout={onLogout}
         onRefreshData={onRefreshData}
         onOpenFirebaseGuide={onOpenFirebaseGuide}
         isSyncing={isSyncing}

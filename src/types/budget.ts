@@ -53,6 +53,7 @@ export interface RincianBelanjaItem {
   id_daerah: number;
   id_standar_harga: number;
   kode_standar_harga: string;
+  // Baseline Data (Admin / JSON)
   koefisien: string;
   harga_satuan: number;
   total_harga: number;
@@ -67,6 +68,17 @@ export interface RincianBelanjaItem {
   is_pure_otsus: number;
   created_at?: string;
   updated_at?: string;
+
+  // Penyesuaian & Usulan Kolom Baru (Input User Biasa)
+  user_spek?: string;
+  user_koefisien?: string;
+  user_harga_satuan?: number;
+  user_total_harga?: number;
+  user_catatan?: string;
+  user_updated_by?: string;
+  user_updated_at?: string;
+  is_user_added?: boolean; // true if added by non-admin user
+  status_persetujuan?: 'pending' | 'disetujui' | 'ditolak';
 }
 
 export interface SubKegiatan {

@@ -30,6 +30,7 @@ import { CurrencyText } from '../atoms/CurrencyText';
 import { SearchBar } from '../molecules/SearchBar';
 import { EmptyState } from '../molecules/EmptyState';
 import { SubKegiatan, KeteranganSubBl } from '../../types/budget';
+import { Link } from '../../services/router';
 
 export interface SubKegiatanSummaryTableProps {
   subKegiatans: SubKegiatan[];
@@ -38,6 +39,7 @@ export interface SubKegiatanSummaryTableProps {
   onDeleteSubKegiatan?: (subKegiatan: SubKegiatan) => void;
   externalSelectedProgram?: string;
   onProgramChange?: (program: string) => void;
+  isAdmin?: boolean;
 }
 
 interface KegiatanGroup {
@@ -64,6 +66,7 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
   onDeleteSubKegiatan,
   externalSelectedProgram,
   onProgramChange,
+  isAdmin = true,
 }) => {
   // View mode: 'grouped' (default as requested by user) or 'flat'
   const [viewMode, setViewMode] = useState<'grouped' | 'flat'>('grouped');
@@ -364,9 +367,14 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
                 )}
               </div>
 
-              <h4 className="font-semibold text-sm text-slate-900 dark:text-white mt-1 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors leading-snug">
+              <Link
+                to={`/sub-kegiatan/${sub.id_sub_bl}`}
+                onClick={() => onSelectSubKegiatan(sub)}
+                className="font-semibold text-sm text-slate-900 dark:text-white mt-1 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors leading-snug block hover:underline"
+                title="Buka rincian belanja sub-kegiatan (Klik kanan untuk Buka di tab baru)"
+              >
                 {sub.nama_sub_kegiatan}
-              </h4>
+              </Link>
 
               {/* Keterangan Sub Belanja dengan Opsi Ekstend / Collapse */}
               {sub.keterangan_list && sub.keterangan_list.length > 0 && (
@@ -546,17 +554,20 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
 
         <td className="py-3.5 px-4 text-center">
           <div className="flex items-center justify-center gap-1.5">
-            <Button
-              variant={hasRincian ? 'primary' : 'outline'}
-              size="xs"
+            <Link
+              to={`/sub-kegiatan/${sub.id_sub_bl}`}
               onClick={() => onSelectSubKegiatan(sub)}
-              icon={<ArrowRight className="w-3.5 h-3.5" />}
-              iconPosition="right"
-              className="shadow-xs text-xs font-semibold"
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition-all cursor-pointer ${
+                hasRincian
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-700/20'
+                  : 'bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
+              }`}
+              title="Buka rincian belanja sub-kegiatan (Klik kanan untuk Buka di tab baru)"
             >
-              {hasRincian ? 'Buka Rincian' : 'Lihat / Buat'}
-            </Button>
-            {onDeleteSubKegiatan && (
+              <span>{hasRincian ? 'Buka Rincian' : 'Lihat / Buat'}</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+            {isAdmin && onDeleteSubKegiatan && (
               <Button
                 variant="danger"
                 size="xs"
@@ -565,7 +576,7 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
                   onDeleteSubKegiatan(sub);
                 }}
                 icon={<Trash2 className="w-3.5 h-3.5" />}
-                title="Hapus Sub-Kegiatan ini"
+                title="Hapus Sub-Kegiatan ini (Khusus Admin)"
                 className="px-2"
               >
                 Hapus

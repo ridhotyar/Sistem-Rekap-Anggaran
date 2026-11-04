@@ -29,6 +29,7 @@ import { RincianItemFormModal } from '../organisms/RincianItemFormModal';
 import { SubKegiatan, RincianBelanjaItem, KeteranganSubBl } from '../../types/budget';
 import { INITIAL_KETERANGAN_LIST } from '../../data/initialBudgetData';
 import { BASE_SUB_KEGIATAN_LIST } from '../../data/initialSubKegiatanData';
+import { AppUser } from '../../types/auth';
 
 export interface SubKegiatanDetailPageProps {
   subKegiatan: SubKegiatan;
@@ -37,6 +38,8 @@ export interface SubKegiatanDetailPageProps {
   onSaveItem: (item: RincianBelanjaItem) => Promise<void>;
   onDeleteItem: (item: RincianBelanjaItem) => Promise<void>;
   onDeleteSubKegiatan?: (subKegiatan: SubKegiatan) => void;
+  currentUser?: AppUser | null;
+  isAdmin?: boolean;
 }
 
 export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
@@ -46,6 +49,8 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
   onSaveItem,
   onDeleteItem,
   onDeleteSubKegiatan,
+  currentUser,
+  isAdmin = currentUser?.role === 'admin',
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<RincianBelanjaItem | null>(null);
@@ -110,6 +115,40 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
     if (window.confirm(confirmText)) {
       await onDeleteItem(item);
     }
+  };
+
+  const handleApproveProposal = async (item: RincianBelanjaItem) => {
+    if (!window.confirm(`Setujui usulan penyesuaian staf untuk "${item.spek}" menjadi data dasar?`)) return;
+    const approvedItem: RincianBelanjaItem = {
+      ...item,
+      spek: item.user_spek || item.spek,
+      koefisien: item.user_koefisien || item.koefisien,
+      harga_satuan: item.user_harga_satuan !== undefined ? item.user_harga_satuan : item.harga_satuan,
+      total_harga: item.user_total_harga !== undefined ? item.user_total_harga : item.total_harga,
+      user_spek: undefined,
+      user_koefisien: undefined,
+      user_harga_satuan: undefined,
+      user_total_harga: undefined,
+      user_catatan: undefined,
+      status_persetujuan: 'disetujui',
+      updated_at: new Date().toISOString(),
+    };
+    await onSaveItem(approvedItem);
+  };
+
+  const handleResetProposal = async (item: RincianBelanjaItem) => {
+    if (!window.confirm(`Tolak/reset usulan penyesuaian untuk "${item.spek}" kembali ke data dasar JSON?`)) return;
+    const resetItem: RincianBelanjaItem = {
+      ...item,
+      user_spek: undefined,
+      user_koefisien: undefined,
+      user_harga_satuan: undefined,
+      user_total_harga: undefined,
+      user_catatan: undefined,
+      status_persetujuan: 'ditolak',
+      updated_at: new Date().toISOString(),
+    };
+    await onSaveItem(resetItem);
   };
 
   // Find matching baseline data from 51 base sub-kegiatan list
@@ -199,13 +238,13 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
         />
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          {onDeleteSubKegiatan && (
+          {isAdmin && onDeleteSubKegiatan && (
             <Button
               variant="danger"
               size="xs"
               onClick={() => onDeleteSubKegiatan(subKegiatan)}
               icon={<Trash2 className="w-3.5 h-3.5" />}
-              title="Hapus Sub-Kegiatan ini beserta seluruh rincian belanjanya"
+              title="Hapus Sub-Kegiatan ini beserta seluruh rincian belanjanya (Khusus Admin)"
             >
               Hapus Sub-Kegiatan
             </Button>
@@ -216,7 +255,7 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
             onClick={onBackToSummary}
             icon={<ArrowLeft className="w-3.5 h-3.5" />}
           >
-            Kembali ke Rangkuman
+            Kembali ke Dashboard
           </Button>
         </div>
       </div>
@@ -476,6 +515,10 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
         onAddItem={handleOpenAdd}
         onEditItem={handleOpenEdit}
         onDeleteItem={handleDelete}
+        currentUser={currentUser}
+        isAdmin={isAdmin}
+        onApproveProposal={handleApproveProposal}
+        onResetProposal={handleResetProposal}
       />
 
       {/* Add / Edit Modal */}
@@ -487,6 +530,10 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
         idSubBl={subKegiatan.id_sub_bl}
         tahun={subKegiatan.tahun}
         idDaerah={subKegiatan.id_daerah}
+        currentUser={currentUser}
+        availablePackages={keteranganList.map((k) => k.keterangan)}
+        allItems={items}
+        defaultKetId={selectedKetId !== 'all' ? selectedKetId : undefined}
       />
     </div>
   );
