@@ -219,7 +219,7 @@
     },
     "AppUser": {
       "title": "AppUser",
-      "description": "Entitas akun pengguna sistem SIPKD Bakesbangpoldagri NTB (Role admin & user)",
+      "description": "Entitas akun pengguna sistem SIPKD Bakesbangpoldagri NTB dengan kredensial terenkripsi (Role admin & user)",
       "type": "object",
       "properties": {
         "id": {
@@ -232,10 +232,20 @@
           "maxLength": 64,
           "description": "Username unik akun"
         },
+        "passwordHash": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Hash SHA-256 kata sandi akun"
+        },
+        "salt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Salt kriptografis unik akun"
+        },
         "password": {
           "type": "string",
           "maxLength": 128,
-          "description": "Kata sandi akun"
+          "description": "Token kata sandi terenkripsi (opsional legacy)"
         },
         "nama": {
           "type": "string",
@@ -266,7 +276,6 @@
       "required": [
         "id",
         "username",
-        "password",
         "nama",
         "role"
       ]

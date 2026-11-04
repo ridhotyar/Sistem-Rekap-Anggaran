@@ -11,8 +11,7 @@ import {
   testFirestoreConnection,
   subscribeAuth,
   subscribeSubKegiatan,
-  subscribeAllRincianBelanja,
-  subscribeAppUsers,
+  subscribeRincianBelanja,
   saveRincianBelanja,
   saveSubKegiatan,
   removeRincianBelanja,
@@ -199,41 +198,39 @@ function AppContent() {
     });
   }, [rincianItems]);
 
-  // Init Firebase connection and listeners
+  // 1. Firebase Auth listener
   useEffect(() => {
     let isMounted = true;
-
     const unsubAuth = subscribeAuth((user) => {
       if (isMounted) setCurrentUser(user);
     });
+    return () => {
+      isMounted = false;
+      unsubAuth();
+    };
+  }, []);
 
-    const initFirebase = async () => {
+  // 2. Hit API for Sub-Kegiatan data: ONLY when user is logged in AND on /dashboard (or /dasbor)
+  const isDashboardRoute =
+    Boolean(appUser) &&
+    (route.pathname === '/dashboard' ||
+      route.pathname === '/dasbor' ||
+      (!route.pathname.startsWith('/sub-kegiatan') && route.pathname !== '/' && route.pathname !== ''));
+
+  useEffect(() => {
+    if (!isDashboardRoute) return;
+
+    let isMounted = true;
+    let unsubSub: (() => void) | null = null;
+
+    const loadDashboardData = async () => {
       setIsSyncing(true);
       const isConnected = await testFirestoreConnection();
       if (!isMounted) return;
-
       setIsFirebaseConnected(isConnected);
 
       if (isConnected) {
-        await seedInitialDataIfEmpty();
-
-        subscribeAppUsers(
-          (users) => {
-            if (isMounted && users.length > 0) {
-              saveUsers(users);
-              const cur = getCurrentAuthUser();
-              if (cur) {
-                const refreshed = users.find((u) => u.id === cur.id);
-                if (refreshed) {
-                  setAppUser(refreshed);
-                }
-              }
-            }
-          },
-          (err) => console.warn('AppUsers sync warning:', err)
-        );
-
-        subscribeSubKegiatan(
+        unsubSub = subscribeSubKegiatan(
           (data) => {
             if (isMounted && data.length > 0) {
               setSubKegiatans(data);
@@ -242,32 +239,69 @@ function AppContent() {
           },
           (err) => console.warn('SubKegiatan sync warning:', err)
         );
+      }
+      setIsSyncing(false);
+    };
 
-        subscribeAllRincianBelanja(
+    loadDashboardData();
+
+    return () => {
+      isMounted = false;
+      if (unsubSub) unsubSub();
+    };
+  }, [isDashboardRoute]);
+
+  // 3. Hit API for Rincian Belanja: ONLY when on specific sub-kegiatan detail page (/sub-kegiatan/:idSubBl)
+  const activeDetailSubId =
+    Boolean(appUser) && route.pathname.startsWith('/sub-kegiatan') ? route.params.idSubBl : null;
+
+  useEffect(() => {
+    if (!activeDetailSubId) return;
+
+    let isMounted = true;
+    let unsubRinci: (() => void) | null = null;
+
+    const loadSubDetailRincian = async () => {
+      setIsSyncing(true);
+      const isConnected = await testFirestoreConnection();
+      if (!isMounted) return;
+      setIsFirebaseConnected(isConnected);
+
+      if (isConnected) {
+        unsubRinci = subscribeRincianBelanja(
+          activeDetailSubId,
           (data) => {
-            if (isMounted && data.length > 0) {
-              setRincianItems(data);
+            if (isMounted) {
+              setRincianItems((prev) => {
+                const otherItems = prev.filter((i) => i.id_sub_bl !== activeDetailSubId);
+                return [...data, ...otherItems];
+              });
               setIsFirebaseConnected(true);
             }
           },
-          (err) => console.warn('RincianBelanja sync warning:', err)
+          (err) => console.warn('Detail rincian sync warning:', err)
         );
       }
       setIsSyncing(false);
     };
 
-    initFirebase();
+    loadSubDetailRincian();
 
     return () => {
       isMounted = false;
-      unsubAuth();
+      if (unsubRinci) unsubRinci();
     };
-  }, []);
+  }, [activeDetailSubId]);
 
   // Handlers for Login & Logout
   const handleLoginSuccess = (user: AppUser) => {
     setAppUser(user);
-    navigate('/dashboard');
+    // If user opened a specific URL (e.g. /sub-kegiatan/122054 or /dashboard), preserve it!
+    if (route.pathname && route.pathname !== '/' && route.pathname !== '') {
+      navigate(route.path);
+    } else {
+      navigate('/dashboard');
+    }
   };
 
   const handleLogout = () => {
@@ -487,19 +521,64 @@ function AppContent() {
           onOpenFirebaseGuide={() => setIsFirebaseGuideOpen(true)}
           isSyncing={isSyncing}
         >
-          <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-              Sub-Kegiatan Tidak Ditemukan
-            </h2>
-            <p className="text-xs text-slate-500">
-              ID Sub-Kegiatan #{route.params.idSubBl} tidak terdaftar dalam database APBD TA 2027.
-            </p>
-            <button
-              onClick={handleBackToDashboard}
-              className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 cursor-pointer shadow-md"
-            >
-              Kembali ke Dashboard
-            </button>
+          <div className="max-w-2xl mx-auto my-8 p-8 sm:p-10 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
+            <div className="w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto text-2xl font-bold">
+              404
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
+                Sub-Kegiatan Tidak Ditemukan
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
+                URL yang Anda buka meminta ID Sub-Kegiatan <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-emerald-600 dark:text-emerald-400 font-bold">#{route.params.idSubBl || 'Tidak Dikenal'}</code>, yang belum terdaftar pada database APBD TA 2027.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              <button
+                onClick={handleBackToDashboard}
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition-colors cursor-pointer shadow-md shadow-emerald-700/20"
+              >
+                Kembali ke Dashboard
+              </button>
+              {subKegiatans.length > 0 && (
+                <button
+                  onClick={() => navigate(`/sub-kegiatan/${subKegiatans[0].id_sub_bl}`)}
+                  className="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Buka Sub-Kegiatan #{subKegiatans[0].id_sub_bl}
+                </button>
+              )}
+            </div>
+
+            {subKegiatans.length > 0 && (
+              <div className="pt-6 border-t border-slate-100 dark:border-slate-800 text-left">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+                  Pilih Sub-Kegiatan Tersedia:
+                </p>
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {subKegiatans.slice(0, 5).map((s) => (
+                    <button
+                      key={s.id_sub_bl}
+                      onClick={() => navigate(`/sub-kegiatan/${s.id_sub_bl}`)}
+                      className="w-full text-left p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 hover:border-emerald-500/50 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 transition-all flex items-center justify-between group cursor-pointer"
+                    >
+                      <div className="min-w-0 pr-3">
+                        <div className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-400">
+                          {s.nama_sub_kegiatan}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono">
+                          {s.kode_sub_kegiatan} • ID #{s.id_sub_bl}
+                        </div>
+                      </div>
+                      <span className="text-xs text-emerald-600 font-bold shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        Buka &rarr;
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </AppLayout>
       );
