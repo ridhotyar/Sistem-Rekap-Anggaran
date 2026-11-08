@@ -19,9 +19,10 @@ import {
 import { Button } from '../atoms/Button';
 import { Badge } from '../atoms/Badge';
 import { CurrencyText } from '../atoms/CurrencyText';
-import { RincianBelanjaItem, KeteranganSubBl } from '../../types/budget';
+import { RincianBelanjaItem, KeteranganSubBl, StandarHargaCategory, StandarHargaItem } from '../../types/budget';
 import { AppUser } from '../../types/auth';
 import { INITIAL_USER_RINCIAN_DATA, INITIAL_KETERANGAN_LIST } from '../../data/initialBudgetData';
+import { getStoredStandarHarga } from '../../services/standarHargaService';
 
 export interface RincianItemFormModalProps {
   isOpen: boolean;
@@ -35,6 +36,7 @@ export interface RincianItemFormModalProps {
   availablePackages?: Partial<KeteranganSubBl>[];
   allItems?: RincianBelanjaItem[];
   defaultKetId?: number;
+  standarHargaList?: StandarHargaItem[];
 }
 
 export interface KoefisienFactor {
@@ -53,6 +55,7 @@ export interface StandarHargaOption {
   kode_akun: string;
   nama_akun: string;
   id_akun: number;
+  kategori?: StandarHargaCategory;
 }
 
 const PRESET_ACCOUNTS = [
@@ -154,6 +157,7 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
   availablePackages = [],
   allItems = [],
   defaultKetId,
+  standarHargaList,
 }) => {
   const isAdmin = currentUser?.role === 'admin';
   const isEditing = Boolean(initialData);
@@ -175,164 +179,122 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
   const [selectedKetId, setSelectedKetId] = useState<number>(957927);
   const [newPackageName, setNewPackageName] = useState('');
 
-  // Standar Satuan Harga dropdown state
+  // Standar Satuan Harga dropdown & category state
   const [isSshDropdownOpen, setIsSshDropdownOpen] = useState(false);
   const [sshSearchQuery, setSshSearchQuery] = useState('');
+  const [selectedShCategory, setSelectedShCategory] = useState<StandarHargaCategory | 'ALL'>('ALL');
   const sshDropdownRef = useRef<HTMLDivElement>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Compile full catalog of Standar Satuan Harga from existing JSON data
+  // Compile full catalog of Standar Satuan Harga from database & excel imports
   const standarHargaCatalog = useMemo<StandarHargaOption[]>(() => {
     const map = new Map<string, StandarHargaOption>();
 
-    // 1. From initial JSON dataset
+    // 1. Primary Source: Live Standar Harga Database (SSH / HSPK / ASB / SBU)
+    const liveList = (standarHargaList && standarHargaList.length > 0)
+      ? standarHargaList
+      : getStoredStandarHarga();
+
+    liveList.forEach((item) => {
+      if (item.nama_standar_harga) {
+        const key = `${item.kategori}-${item.nama_standar_harga.toLowerCase()}-${item.spek.toLowerCase()}`;
+        map.set(key, {
+          id_standar_harga: item.id_standar_harga,
+          kode_standar_harga: item.kode_standar_harga,
+          nama_standar_harga: item.nama_standar_harga,
+          harga_satuan: item.harga_satuan,
+          satuan_default: item.satuan || 'Paket',
+          spek_default: item.spek || '',
+          kode_akun: item.kode_akun || PRESET_ACCOUNTS[0].kode,
+          nama_akun: item.nama_akun || PRESET_ACCOUNTS[0].nama,
+          id_akun: item.id_akun || PRESET_ACCOUNTS[0].id_akun,
+          kategori: item.kategori || 'SSH',
+        });
+      }
+    });
+
+    // 2. From initial JSON dataset (fallback to ensure 100% compatibility)
     INITIAL_USER_RINCIAN_DATA.forEach((item) => {
-      if (item.nama_standar_harga && !map.has(item.nama_standar_harga.toLowerCase())) {
-        map.set(item.nama_standar_harga.toLowerCase(), {
-          id_standar_harga: item.id_standar_harga || 4549661,
-          kode_standar_harga: item.kode_standar_harga || '1.1.12.01.03.0001.03113',
-          nama_standar_harga: item.nama_standar_harga,
-          harga_satuan: item.harga_satuan || 50000,
-          satuan_default: String(item.koefisien || '').replace(/\d+/g, '').replace(/[xX\*,]/g, '').trim() || 'Paket',
-          spek_default: item.spek || '',
-          kode_akun: item.kode_akun || PRESET_ACCOUNTS[0].kode,
-          nama_akun: item.nama_akun || PRESET_ACCOUNTS[0].nama,
-          id_akun: item.id_akun || PRESET_ACCOUNTS[0].id_akun,
-        });
+      if (item.nama_standar_harga) {
+        const key = `SSH-${item.nama_standar_harga.toLowerCase()}-${(item.spek || '').toLowerCase()}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            id_standar_harga: item.id_standar_harga || 4549661,
+            kode_standar_harga: item.kode_standar_harga || '1.1.12.01.03.0001.03113',
+            nama_standar_harga: item.nama_standar_harga,
+            harga_satuan: item.harga_satuan || 50000,
+            satuan_default: String(item.koefisien || '').replace(/\d+/g, '').replace(/[xX\*,]/g, '').trim() || 'Paket',
+            spek_default: item.spek || '',
+            kode_akun: item.kode_akun || PRESET_ACCOUNTS[0].kode,
+            nama_akun: item.nama_akun || PRESET_ACCOUNTS[0].nama,
+            id_akun: item.id_akun || PRESET_ACCOUNTS[0].id_akun,
+            kategori: 'SSH',
+          });
+        }
       }
     });
 
-    // 2. From all active items in current session
+    // 3. From all active items in current session
     allItems.forEach((item) => {
-      if (item.nama_standar_harga && !map.has(item.nama_standar_harga.toLowerCase())) {
-        map.set(item.nama_standar_harga.toLowerCase(), {
-          id_standar_harga: item.id_standar_harga || 4549661,
-          kode_standar_harga: item.kode_standar_harga || '1.1.12.01.03.0001.03113',
-          nama_standar_harga: item.nama_standar_harga,
-          harga_satuan: item.harga_satuan || 50000,
-          satuan_default: String(item.koefisien || '').replace(/\d+/g, '').replace(/[xX\*,]/g, '').trim() || 'Paket',
-          spek_default: item.spek || '',
-          kode_akun: item.kode_akun || PRESET_ACCOUNTS[0].kode,
-          nama_akun: item.nama_akun || PRESET_ACCOUNTS[0].nama,
-          id_akun: item.id_akun || PRESET_ACCOUNTS[0].id_akun,
-        });
-      }
-    });
-
-    // 3. Ensure other popular SIPD Bakesbangpoldagri SSH items are readily available
-    const standardPresets: StandarHargaOption[] = [
-      {
-        id_standar_harga: 4778094,
-        kode_standar_harga: '1.1.12.01.03.0001.03113',
-        nama_standar_harga: 'Alat Tulis Kantor',
-        harga_satuan: 100000,
-        satuan_default: 'Paket',
-        spek_default: 'Seminar Kit Lengkap',
-        kode_akun: '5.1.02.01.001.00024',
-        nama_akun: 'Belanja Alat/Bahan untuk Kegiatan Kantor-Alat Tulis Kantor',
-        id_akun: 33279,
-      },
-      {
-        id_standar_harga: 4548936,
-        kode_standar_harga: '1.1.12.01.03.0002.00789',
-        nama_standar_harga: 'Kertas dan Cover',
-        harga_satuan: 60000,
-        satuan_default: 'Rim',
-        spek_default: 'kertas HVS (F4) uk. 33 x 21 1/2 cm, 70 gr',
-        kode_akun: '5.1.02.01.001.00025',
-        nama_akun: 'Belanja Alat/Bahan untuk Kegiatan Kantor- Kertas dan Cover',
-        id_akun: 33280,
-      },
-      {
-        id_standar_harga: 4549661,
-        kode_standar_harga: '1.1.12.01.03.0003.01249',
-        nama_standar_harga: 'Bahan Cetak',
-        harga_satuan: 300,
-        satuan_default: 'Lembar',
-        spek_default: 'Fotocopy bahan HVS 70 gr pulau lombok 1 muka',
-        kode_akun: '5.1.02.01.001.00026',
-        nama_akun: 'Belanja Alat/Bahan untuk Kegiatan Kantor- Bahan Cetak',
-        id_akun: 33281,
-      },
-      {
-        id_standar_harga: 4867336,
-        kode_standar_harga: '8.1.02.01.01.0052.00006',
-        nama_standar_harga: 'Beban Makanan dan Minuman Rapat (Makan)',
-        harga_satuan: 35000,
-        satuan_default: 'Orang',
-        spek_default: 'Rapat Biasa (Makan)',
-        kode_akun: '5.1.02.01.001.00052',
-        nama_akun: 'Belanja Makanan dan Minuman Rapat',
-        id_akun: 33307,
-      },
-      {
-        id_standar_harga: 4867337,
-        kode_standar_harga: '8.1.02.01.01.0052.00007',
-        nama_standar_harga: 'Beban Makanan dan Minuman Rapat (Snack)',
-        harga_satuan: 15000,
-        satuan_default: 'Orang',
-        spek_default: 'Rapat Biasa (Kudapan/Snack)',
-        kode_akun: '5.1.02.01.001.00052',
-        nama_akun: 'Belanja Makanan dan Minuman Rapat',
-        id_akun: 33307,
-      },
-      {
-        id_standar_harga: 4587243,
-        kode_standar_harga: '8.1.02.02.01.0003.00005',
-        nama_standar_harga: 'Beban Honorarium Narasumber (Eselon II)',
-        harga_satuan: 1000000,
-        satuan_default: 'Orang / Jam',
-        spek_default: 'Pejabat Eselon II/yang disetarakan',
-        kode_akun: '5.1.02.02.001.00003',
-        nama_akun: 'Honorarium Narasumber atau Pembahas, Moderator, Pembawa Acara, dan Panitia',
-        id_akun: 34103,
-      },
-      {
-        id_standar_harga: 4587247,
-        kode_standar_harga: '8.1.02.02.01.0003.00009',
-        nama_standar_harga: 'Beban Honorarium Moderator Kegiatan',
-        harga_satuan: 700000,
-        satuan_default: 'Orang / Kegiatan',
-        spek_default: 'Moderator Kegiatan',
-        kode_akun: '5.1.02.02.001.00003',
-        nama_akun: 'Honorarium Narasumber atau Pembahas, Moderator, Pembawa Acara, dan Panitia',
-        id_akun: 34103,
-      },
-      {
-        id_standar_harga: 4589397,
-        kode_standar_harga: '8.1.02.04.01.0004.00006',
-        nama_standar_harga: 'Beban Perjalanan Dinas Paket Meeting Dalam Kota',
-        harga_satuan: 713000,
-        satuan_default: 'Orang',
-        spek_default: 'Paket Kegiatan Rapat Luar Kantor Setingkat Eselon II (Fullday)',
-        kode_akun: '5.1.02.04.001.00004',
-        nama_akun: 'Belanja Perjalanan Dinas Paket Meeting Dalam Kota',
-        id_akun: 36003,
-      },
-    ];
-
-    standardPresets.forEach((p) => {
-      if (!map.has(p.nama_standar_harga.toLowerCase())) {
-        map.set(p.nama_standar_harga.toLowerCase(), p);
+      if (item.nama_standar_harga) {
+        const key = `SSH-${item.nama_standar_harga.toLowerCase()}-${(item.spek || '').toLowerCase()}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            id_standar_harga: item.id_standar_harga || 4549661,
+            kode_standar_harga: item.kode_standar_harga || '1.1.12.01.03.0001.03113',
+            nama_standar_harga: item.nama_standar_harga,
+            harga_satuan: item.harga_satuan || 50000,
+            satuan_default: String(item.koefisien || '').replace(/\d+/g, '').replace(/[xX\*,]/g, '').trim() || 'Paket',
+            spek_default: item.spek || '',
+            kode_akun: item.kode_akun || PRESET_ACCOUNTS[0].kode,
+            nama_akun: item.nama_akun || PRESET_ACCOUNTS[0].nama,
+            id_akun: item.id_akun || PRESET_ACCOUNTS[0].id_akun,
+            kategori: 'SSH',
+          });
+        }
       }
     });
 
     return Array.from(map.values());
-  }, [allItems]);
+  }, [standarHargaList, allItems]);
 
-  // Filtered Standar Satuan Harga based on search
+  // Counts for each category tab
+  const categoryCounts = useMemo(() => {
+    const counts = { ALL: standarHargaCatalog.length, SSH: 0, HSPK: 0, ASB: 0, SBU: 0 };
+    standarHargaCatalog.forEach((item) => {
+      if (item.kategori && counts[item.kategori] !== undefined) {
+        counts[item.kategori]++;
+      }
+    });
+    return counts;
+  }, [standarHargaCatalog]);
+
+  // Filtered Standar Satuan Harga based on active Category tab and search
   const filteredSshOptions = useMemo(() => {
-    if (!sshSearchQuery.trim()) return standarHargaCatalog;
-    const query = sshSearchQuery.toLowerCase();
-    return standarHargaCatalog.filter(
-      (opt) =>
-        opt.nama_standar_harga.toLowerCase().includes(query) ||
-        opt.spek_default.toLowerCase().includes(query) ||
-        opt.nama_akun.toLowerCase().includes(query)
-    );
-  }, [standarHargaCatalog, sshSearchQuery]);
+    let result = standarHargaCatalog;
+
+    // Filter by Category
+    if (selectedShCategory !== 'ALL') {
+      result = result.filter((opt) => opt.kategori === selectedShCategory);
+    }
+
+    // Filter by Search Query
+    if (sshSearchQuery.trim()) {
+      const query = sshSearchQuery.toLowerCase();
+      result = result.filter(
+        (opt) =>
+          opt.nama_standar_harga.toLowerCase().includes(query) ||
+          opt.spek_default.toLowerCase().includes(query) ||
+          opt.kode_standar_harga.toLowerCase().includes(query) ||
+          opt.nama_akun.toLowerCase().includes(query) ||
+          (opt.kategori && opt.kategori.toLowerCase().includes(query))
+      );
+    }
+
+    return result;
+  }, [standarHargaCatalog, selectedShCategory, sshSearchQuery]);
 
   // Available packages for this sub-kegiatan
   const packageOptions = useMemo(() => {
@@ -597,22 +559,29 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
 
       let payload: RincianBelanjaItem;
 
+      const isNewItem = !isEditing;
+      const baseTotal = isNewItem ? 0 : (formData.base_total_harga !== undefined ? formData.base_total_harga : formData.total_harga || 0);
+      const baseHarga = isNewItem ? 0 : (formData.base_harga_satuan !== undefined ? formData.base_harga_satuan : formData.harga_satuan || 0);
+      const baseKoef = isNewItem ? '' : (formData.base_koefisien !== undefined ? formData.base_koefisien : formData.koefisien || '');
+
       if (!isAdmin) {
         // NON-ADMIN USER PROPOSAL:
         // Keep baseline admin untouched, store user proposal in user_* fields
-        const isNewItem = !isEditing;
         payload = {
           ...(formData as RincianBelanjaItem),
           id_ket_sub_bl: targetKetId,
           ket_bl_teks: targetKetTeks,
 
-          // Base data remains untouched if existing
+          // Data Dasar (SEBELUM) selalu tetap
           spek: isNewItem ? userSpek : formData.spek || userSpek,
-          koefisien: isNewItem ? formattedKoefisienText : formData.koefisien || formattedKoefisienText,
-          harga_satuan: isNewItem ? 0 : formData.harga_satuan || 0,
-          total_harga: isNewItem ? 0 : formData.total_harga || 0,
+          koefisien: isNewItem ? formattedKoefisienText : baseKoef,
+          harga_satuan: isNewItem ? 0 : baseHarga,
+          total_harga: isNewItem ? 0 : baseTotal,
+          base_total_harga: baseTotal,
+          base_harga_satuan: baseHarga,
+          base_koefisien: baseKoef,
 
-          // User Proposal Column Fields
+          // Data Usulan (SESUDAH)
           user_spek: userSpek,
           user_koefisien: formattedKoefisienText,
           user_harga_satuan: userHargaSatuan,
@@ -624,15 +593,31 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
           status_persetujuan: 'pending',
         };
       } else {
-        // ADMIN EDITING BASE DATA DIRECTLY
+        // ADMIN EDITING:
+        // Data Dasar (SEBELUM) tetap dipertahankan, nilai baru disimpan sebagai SESUDAH (user_total_harga)
         payload = {
           ...(formData as RincianBelanjaItem),
           id_ket_sub_bl: targetKetId,
           ket_bl_teks: targetKetTeks,
-          spek: userSpek || formData.spek || '',
-          koefisien: formattedKoefisienText,
-          harga_satuan: userHargaSatuan,
-          total_harga: userTotalHarga,
+
+          // Data Dasar (SEBELUM) selalu tetap
+          spek: isNewItem ? userSpek : formData.spek || userSpek,
+          koefisien: isNewItem ? formattedKoefisienText : baseKoef,
+          harga_satuan: isNewItem ? 0 : baseHarga,
+          total_harga: isNewItem ? 0 : baseTotal,
+          base_total_harga: baseTotal,
+          base_harga_satuan: baseHarga,
+          base_koefisien: baseKoef,
+
+          // Data Perubahan (SESUDAH)
+          user_spek: userSpek,
+          user_koefisien: formattedKoefisienText,
+          user_harga_satuan: userHargaSatuan,
+          user_total_harga: userTotalHarga,
+          user_updated_by: currentUser?.nama || 'Administrator',
+          user_updated_at: new Date().toISOString(),
+          is_user_added: isNewItem ? true : formData.is_user_added,
+          status_persetujuan: 'disetujui',
           updated_at: new Date().toISOString(),
         };
       }
@@ -824,23 +809,45 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
             )}
           </div>
 
-          {/* 2. NAMA STANDAR SATUAN HARGA - Dropdown selection from JSON data (SSH Code is hidden as requested) */}
+          {/* 2. NAMA STANDAR SATUAN HARGA (SSH / HSPK / ASB / SBU) */}
           <div className="space-y-1 relative" ref={sshDropdownRef}>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-              Nama Standar Satuan Harga
-              <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-normal ml-2">
-                (Klik untuk memilih dari data JSON standar satuan harga)
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Pilih Standar Harga Satuan (SSH, HSPK, ASB, SBU)
+              </label>
+              <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                {filteredSshOptions.length} item tersedia
               </span>
-            </label>
+            </div>
 
             {/* Clickable selector box */}
             <div
               onClick={() => setIsSshDropdownOpen((prev) => !prev)}
-              className="w-full text-xs border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 flex items-center justify-between cursor-pointer hover:border-emerald-500 transition-all shadow-2xs"
+              className="w-full text-xs border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 flex items-center justify-between cursor-pointer hover:border-emerald-500 transition-all shadow-2xs group"
             >
               <div className="flex items-center gap-2 truncate">
+                {/* Selected Item Category Badge */}
+                {formData.nama_standar_harga && (
+                  (() => {
+                    const matched = standarHargaCatalog.find((c) => c.nama_standar_harga === formData.nama_standar_harga);
+                    const kat = matched?.kategori || 'SSH';
+                    const badgeClasses =
+                      kat === 'SSH'
+                        ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/60 dark:text-blue-300'
+                        : kat === 'HSPK'
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/60 dark:text-emerald-300'
+                        : kat === 'ASB'
+                        ? 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/60 dark:text-purple-300'
+                        : 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/60 dark:text-amber-300';
+                    return (
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border uppercase shrink-0 ${badgeClasses}`}>
+                        {kat}
+                      </span>
+                    );
+                  })()
+                )}
                 <span className="font-semibold text-slate-900 dark:text-white truncate">
-                  {formData.nama_standar_harga || 'Pilih Standar Satuan Harga...'}
+                  {formData.nama_standar_harga || 'Pilih Satuan Harga (SSH, HSPK, ASB, SBU)...'}
                 </span>
                 {formData.nama_standar_harga && (
                   <Badge variant="primary" size="xs">
@@ -858,44 +865,94 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
             {/* Hidden Standar Satuan Harga Code stored in payload */}
             <input type="hidden" name="kode_standar_harga" value={formData.kode_standar_harga || ''} />
 
-            {/* Interactive Dropdown List populated from JSON */}
+            {/* Interactive Dropdown with Category Tabs (Semua, SSH, HSPK, ASB, SBU) & Search */}
             {isSshDropdownOpen && (
-              <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 max-h-72 flex flex-col">
-                {/* Search Bar inside Dropdown */}
-                <div className="p-2.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 sticky top-0 z-10 flex items-center gap-2">
+              <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 max-h-96 flex flex-col">
+                {/* 1. Category Tabs Header */}
+                <div className="p-2 bg-slate-50 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 flex flex-wrap gap-1 items-center">
+                  {(['ALL', 'SSH', 'HSPK', 'ASB', 'SBU'] as const).map((kat) => {
+                    const count = categoryCounts[kat];
+                    const isActive = selectedShCategory === kat;
+                    return (
+                      <button
+                        key={kat}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedShCategory(kat);
+                        }}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          isActive
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        <span>{kat === 'ALL' ? 'Semua' : kat}</span>
+                        <span
+                          className={`px-1 py-0.2 rounded-full text-[9px] ${
+                            isActive
+                              ? 'bg-emerald-700 text-emerald-100'
+                              : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 2. Search Bar inside Dropdown */}
+                <div className="p-2.5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10 flex items-center gap-2">
                   <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   <input
                     type="text"
                     value={sshSearchQuery}
                     onChange={(e) => setSshSearchQuery(e.target.value)}
-                    placeholder="Ketik untuk mencari nama SSH / uraian (contoh: kertas, makan, rapat, atk)..."
-                    className="w-full text-xs bg-transparent border-none text-slate-800 dark:text-slate-100 focus:outline-none placeholder:text-slate-400"
+                    placeholder={`Cari nama item, spesifikasi, kode, akun...`}
+                    className="w-full text-xs bg-transparent border-none text-slate-800 dark:text-slate-100 focus:outline-none placeholder:text-slate-400 font-medium"
                     autoFocus
                   />
                   {sshSearchQuery && (
                     <button
                       type="button"
                       onClick={() => setSshSearchQuery('')}
-                      className="text-slate-400 hover:text-slate-600 text-xs"
+                      className="text-slate-400 hover:text-slate-600 text-xs px-1"
                     >
                       &times;
                     </button>
                   )}
                 </div>
 
-                {/* Items List */}
-                <div className="overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                {/* 3. Items List */}
+                <div className="overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 max-h-64">
                   {filteredSshOptions.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-slate-500">
-                      Tidak ditemukan standar satuan harga dengan kata kunci "{sshSearchQuery}".
+                    <div className="p-6 text-center text-xs text-slate-500 space-y-1">
+                      <p className="font-semibold text-slate-700 dark:text-slate-300">
+                        Tidak ada standar harga ditemukan
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        Coba ubah kata kunci atau ganti filter kategori (SSH / HSPK / ASB / SBU).
+                      </p>
                     </div>
                   ) : (
                     filteredSshOptions.map((opt) => {
                       const isSelected =
-                        formData.nama_standar_harga === opt.nama_standar_harga;
+                        formData.nama_standar_harga === opt.nama_standar_harga &&
+                        (!formData.kode_standar_harga || formData.kode_standar_harga === opt.kode_standar_harga);
+                      const kat = opt.kategori || 'SSH';
+                      const badgeClasses =
+                        kat === 'SSH'
+                          ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/60 dark:text-blue-300'
+                          : kat === 'HSPK'
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/60 dark:text-emerald-300'
+                          : kat === 'ASB'
+                          ? 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/60 dark:text-purple-300'
+                          : 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/60 dark:text-amber-300';
+
                       return (
                         <div
-                          key={`${opt.id_standar_harga}-${opt.nama_standar_harga}`}
+                          key={`${opt.kategori || 'SSH'}-${opt.id_standar_harga}-${opt.kode_standar_harga}-${opt.nama_standar_harga}`}
                           onClick={() => handleSelectStandarHarga(opt)}
                           className={`p-3 text-xs cursor-pointer transition-colors flex items-start justify-between gap-3 ${
                             isSelected
@@ -903,21 +960,28 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
                               : 'hover:bg-slate-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200'
                           }`}
                         >
-                          <div className="space-y-0.5 min-w-0">
-                            <div className="flex items-center gap-2">
+                          <div className="space-y-1 min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border uppercase shrink-0 ${badgeClasses}`}>
+                                {kat}
+                              </span>
                               <span className="font-bold text-slate-900 dark:text-white">
                                 {opt.nama_standar_harga}
                               </span>
-                              {isSelected && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                              {isSelected && <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
                             </div>
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                              Spek: {opt.spek_default}
-                            </p>
-                            <span className="inline-block font-mono text-[10px] text-slate-400">
-                              {opt.nama_akun}
-                            </span>
+                            {opt.spek_default && (
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                                <span className="font-semibold text-slate-600 dark:text-slate-300">Spek:</span> {opt.spek_default}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
+                              <span>Kode: {opt.kode_standar_harga}</span>
+                              <span>•</span>
+                              <span className="truncate">{opt.nama_akun}</span>
+                            </div>
                           </div>
-                          <div className="text-right shrink-0">
+                          <div className="text-right shrink-0 pl-2">
                             <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400 block text-xs">
                               Rp {opt.harga_satuan.toLocaleString('id-ID')}
                             </span>

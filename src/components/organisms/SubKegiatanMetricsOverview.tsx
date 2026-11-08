@@ -16,6 +16,7 @@ import { CurrencyText } from '../atoms/CurrencyText';
 import { Card } from '../atoms/Card';
 import { Badge } from '../atoms/Badge';
 import { RincianBelanjaItem, SubKegiatan } from '../../types/budget';
+import { getPagus } from './SubKegiatanSummaryTable';
 
 export interface SubKegiatanMetricsOverviewProps {
   subKegiatan?: SubKegiatan;
@@ -23,6 +24,7 @@ export interface SubKegiatanMetricsOverviewProps {
   allSubKegiatans?: SubKegiatan[];
   isDetailedView?: boolean;
   onSelectProgram?: (programName: string) => void;
+  selectedProgram?: string;
 }
 
 const PROGRAM_THEMES = [
@@ -94,27 +96,53 @@ export const SubKegiatanMetricsOverview: React.FC<SubKegiatanMetricsOverviewProp
   allSubKegiatans,
   isDetailedView = false,
   onSelectProgram,
+  selectedProgram = 'all',
 }) => {
+  const handleProgramCardClick = (programName: string) => {
+    if (onSelectProgram) {
+      onSelectProgram(programName);
+    }
+
+    // Scroll smoothly to the daftar program section
+    setTimeout(() => {
+      const target = document.getElementById('daftar-program');
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 60);
+  };
+
   // If in detailed view, calculate metrics for this specific sub-kegiatan
   if (isDetailedView && subKegiatan) {
     const totalRincian = items.reduce((acc, curr) => acc + (curr.total_harga || 0), 0);
     const uniqueAccounts = new Set(items.map((i) => i.kode_akun)).size;
-    const pagu = subKegiatan.pagu_indikatif || totalRincian;
-    const balance = pagu - totalRincian;
-
-    // Largest expenditure item
-    const maxItem = items.length > 0
-      ? items.reduce((prev, curr) => (curr.total_harga > prev.total_harga ? curr : prev), items[0])
-      : null;
+    const { paguIndikatif, paguPerubahan, selisih, persen } = getPagus(subKegiatan);
+    const balance = paguPerubahan - totalRincian;
 
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
-          title="Total Pagu Sub-Kegiatan"
-          value={<CurrencyText amount={pagu} />}
-          subtitle={`Tahun Anggaran ${subKegiatan.tahun}`}
+          title="Sebelum"
+          value={<CurrencyText amount={paguIndikatif} />}
+          subtitle={`APBD Murni TA ${subKegiatan.tahun}`}
+          icon={<Wallet className="w-5 h-5" />}
+          iconBgColor="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+        />
+
+        <StatCard
+          title="Sesudah"
+          value={<CurrencyText amount={paguPerubahan} />}
+          subtitle={
+            selisih !== 0
+              ? `${selisih > 0 ? '+' : ''}${selisih.toLocaleString('id-ID')} (${selisih > 0 ? '+' : ''}${persen.toFixed(1)}%)`
+              : 'Sama dengan anggaran sebelum'
+          }
           icon={<Wallet className="w-5 h-5" />}
           iconBgColor="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400"
+          trend={{
+            label: selisih !== 0 ? `${selisih > 0 ? '+' : ''}${persen.toFixed(1)}%` : 'Tetap (0%)',
+            isPositive: selisih >= 0,
+          }}
         />
 
         <StatCard
@@ -125,7 +153,7 @@ export const SubKegiatanMetricsOverview: React.FC<SubKegiatanMetricsOverviewProp
               ? 'Pagu seimbang (100% teralokasi)'
               : balance > 0
               ? `Sisa pagu: ${balance.toLocaleString('id-ID')}`
-              : 'Melebihi pagu indikatif'
+              : 'Melebihi alokasi usulan'
           }
           icon={<FileSpreadsheet className="w-5 h-5" />}
           iconBgColor="bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400"
@@ -142,25 +170,27 @@ export const SubKegiatanMetricsOverview: React.FC<SubKegiatanMetricsOverviewProp
           icon={<Layers className="w-5 h-5" />}
           iconBgColor="bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400"
         />
-
-        <StatCard
-          title="Alokasi Terbesar"
-          value={maxItem ? <CurrencyText amount={maxItem.total_harga} compact /> : 'Rp 0'}
-          subtitle={maxItem ? maxItem.spek : 'Tidak ada rincian'}
-          icon={<ArrowUpRight className="w-5 h-5" />}
-          iconBgColor="bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-400"
-        />
       </div>
     );
   }
 
   // ================= SUMMARY VIEW =================
-  // Replaced 4 old cards with:
-  // 1. "Total Anggaran SKPD"
-  // 2. "Nama Program dan Anggarannya (di dalamnya terdapat persentase anggaran masing-masing program)"
-
-  const totalPaguOverall = useMemo(() => {
-    return allSubKegiatans?.reduce((acc, curr) => acc + (curr.pagu_indikatif || 0), 0) || 0;
+  const { totalPaguIndikatifOverall, totalPaguPerubahanOverall, selisihOverall, persenOverall } = useMemo(() => {
+    let ind = 0;
+    let per = 0;
+    allSubKegiatans?.forEach((sub) => {
+      const { paguIndikatif, paguPerubahan } = getPagus(sub);
+      ind += paguIndikatif;
+      per += paguPerubahan;
+    });
+    const sel = per - ind;
+    const pct = ind > 0 ? (sel / ind) * 100 : 0;
+    return {
+      totalPaguIndikatifOverall: ind,
+      totalPaguPerubahanOverall: per,
+      selisihOverall: sel,
+      persenOverall: pct,
+    };
   }, [allSubKegiatans]);
 
   const totalSubKegiatanCount = allSubKegiatans?.length || 0;
@@ -174,7 +204,10 @@ export const SubKegiatanMetricsOverview: React.FC<SubKegiatanMetricsOverviewProp
       {
         kode: string;
         nama: string;
-        totalPagu: number;
+        totalPaguIndikatif: number;
+        totalPaguPerubahan: number;
+        selisih: number;
+        persenSelisih: number;
         subCount: number;
         withRincianCount: number;
       }
@@ -185,12 +218,17 @@ export const SubKegiatanMetricsOverview: React.FC<SubKegiatanMetricsOverviewProp
       const existing = map.get(progName) || {
         kode: sub.kode_program || '',
         nama: progName,
-        totalPagu: 0,
+        totalPaguIndikatif: 0,
+        totalPaguPerubahan: 0,
+        selisih: 0,
+        persenSelisih: 0,
         subCount: 0,
         withRincianCount: 0,
       };
 
-      existing.totalPagu += sub.pagu_indikatif || 0;
+      const { paguIndikatif, paguPerubahan } = getPagus(sub);
+      existing.totalPaguIndikatif += paguIndikatif;
+      existing.totalPaguPerubahan += paguPerubahan;
       existing.subCount += 1;
       if ((sub.rincian_count ?? 0) > 0) {
         existing.withRincianCount += 1;
@@ -201,17 +239,22 @@ export const SubKegiatanMetricsOverview: React.FC<SubKegiatanMetricsOverviewProp
 
     return Array.from(map.values())
       .map((p) => {
-        const percentage = totalPaguOverall > 0 ? (p.totalPagu / totalPaguOverall) * 100 : 0;
+        const percentage = totalPaguIndikatifOverall > 0 ? (p.totalPaguIndikatif / totalPaguIndikatifOverall) * 100 : 0;
+        const selisih = p.totalPaguPerubahan - p.totalPaguIndikatif;
+        const persenSelisih = p.totalPaguIndikatif > 0 ? (selisih / p.totalPaguIndikatif) * 100 : 0;
         return {
           ...p,
           percentage,
+          selisih,
+          persenSelisih,
+          totalPagu: p.totalPaguPerubahan,
         };
       })
       .sort((a, b) => {
         if (a.kode && b.kode) return a.kode.localeCompare(b.kode);
         return a.nama.localeCompare(b.nama);
       });
-  }, [allSubKegiatans, totalPaguOverall]);
+  }, [allSubKegiatans, totalPaguIndikatifOverall]);
 
   return (
     <div className="space-y-4 mb-6">
@@ -235,34 +278,76 @@ export const SubKegiatanMetricsOverview: React.FC<SubKegiatanMetricsOverviewProp
                   <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                     Total Anggaran SKPD
                   </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">
+                    Badan Kesatuan Bangsa dan Politik Dalam Negeri Provinsi Nusa Tenggara Barat • Tahun Anggaran 2027
+                  </p>
                 </div>
-              </div>
-              <p className="text-xs text-slate-600 dark:text-slate-400">
-                Badan Kesatuan Bangsa dan Politik Dalam Negeri Provinsi Nusa Tenggara Barat • Tahun Anggaran 2027
-              </p>
+              </div>  
             </div>
+          </div>
 
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-              <div className="bg-white dark:bg-slate-800 px-5 py-3 rounded-2xl border border-emerald-200 dark:border-emerald-900/60 shadow-xs text-left sm:text-right">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
-                  Pagu Indikatif Murni
+          <div>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full">
+              {/* Sebelum */}
+              <div className="flex-1 bg-white dark:bg-slate-800 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs text-left sm:text-right">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                  Sebelum
                 </span>
                 <CurrencyText
-                  amount={totalPaguOverall}
-                  className="text-2xl sm:text-3xl font-black text-emerald-700 dark:text-emerald-400 font-mono tracking-tight"
+                  amount={totalPaguIndikatifOverall}
+                  className="text-lg sm:text-xl font-bold text-slate-800 dark:text-slate-200 font-mono tracking-tight"
                 />
               </div>
 
-              <div className="flex flex-col gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                <Badge variant="primary" size="sm" className="font-semibold shadow-2xs">
-                  {programStats.length} Program Kegiatan
-                </Badge>
-                <Badge variant="neutral" size="sm" className="font-semibold shadow-2xs">
-                  {totalSubKegiatanCount} Sub-Kegiatan
-                </Badge>
+              {/* Sesudah */}
+              <div className="flex-1 bg-white dark:bg-slate-800 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs text-left sm:text-right">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                  Sesudah
+                </span>
+                <CurrencyText
+                  amount={totalPaguPerubahanOverall}
+                  className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white font-mono tracking-tight"
+                />
               </div>
+
+              {/* Selisih */}
+              <div className="flex-1 bg-white dark:bg-slate-800 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs text-left sm:text-right">
+                <div className="flex items-center justify-between sm:justify-end gap-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                    Selisih
+                  </span>
+                  {selisihOverall !== 0 && (
+                    <span
+                      className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
+                        selisihOverall > 0
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                          : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                      }`}
+                    >
+                      {selisihOverall > 0 ? '+' : ''}{persenOverall.toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+                <div
+                  className={`text-lg sm:text-xl font-bold font-mono tracking-tight ${
+                    selisihOverall > 0
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : selisihOverall < 0
+                      ? 'text-rose-600 dark:text-rose-400'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  {selisihOverall > 0 ? '+' : ''}
+                  <CurrencyText
+                    amount={selisihOverall}
+                    className="inline text-lg sm:text-xl font-bold font-mono tracking-tight"
+                  />
+                </div>
+              </div>
+
             </div>
           </div>
+          
 
           {/* Cumulative Multi-Color Program Distribution Bar */}
           <div className="mt-5 pt-4 border-t border-slate-200/80 dark:border-slate-800">
@@ -284,29 +369,39 @@ export const SubKegiatanMetricsOverview: React.FC<SubKegiatanMetricsOverviewProp
                   <div
                     key={prog.nama}
                     style={{ width: `${Math.max(prog.percentage, 1)}%` }}
-                    className={`${theme.barColor} transition-all relative group cursor-pointer`}
-                    title={`${prog.nama}: ${prog.percentage.toFixed(2)}% (${prog.totalPagu.toLocaleString('id-ID')})`}
+                    onClick={() => handleProgramCardClick(prog.nama)}
+                    className={`${theme.barColor} transition-all relative group cursor-pointer hover:opacity-80`}
+                    title={`${prog.nama}: ${prog.percentage.toFixed(2)}% (Klik untuk scroll ke daftar program)`}
                   />
                 );
               })}
             </div>
 
             {/* Compact Legend Pills */}
-            <div className="flex flex-wrap items-center gap-2 mt-3 pt-1">
+            <div className="flex flex-wrap items-center gap-2 mt-3 pt-1 w-full">
               {programStats.map((prog, idx) => {
                 const theme = PROGRAM_THEMES[idx % PROGRAM_THEMES.length];
+                const isSelected = selectedProgram === prog.nama;
                 return (
-                  <div
+                  <button
                     key={prog.nama}
-                    onClick={() => onSelectProgram && onSelectProgram(prog.nama)}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] border ${theme.borderColor} ${theme.badgeBg} font-medium text-slate-700 dark:text-slate-300 transition-colors shadow-2xs cursor-pointer`}
+                    type="button"
+                    onClick={() => handleProgramCardClick(prog.nama)}
+                    className={`flex-1 inline-flex items-center justify-between gap-1.5 px-2.5 py-1 rounded-lg text-[11px] border ${
+                      isSelected
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/40 bg-emerald-100/70 dark:bg-emerald-950 font-bold'
+                        : `${theme.borderColor} ${theme.badgeBg} font-medium`
+                    } text-slate-700 dark:text-slate-300 transition-all shadow-2xs cursor-pointer hover:shadow-xs`}
+                    title={`Klik untuk memfilter dan scroll ke ${prog.nama}`}
                   >
-                    <span className={`w-2 h-2 rounded-full ${theme.barColor}`} />
-                    <span className="font-mono font-bold text-[10px] text-slate-900 dark:text-white">
-                      {prog.kode || `P${idx + 1}`}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${theme.barColor}`} />
+                      <span className="font-mono font-bold text-[10px] text-slate-900 dark:text-white">
+                        {prog.kode || `P${idx + 1}`}
+                      </span>
+                    </div>
                     <span className="font-semibold">{prog.percentage.toFixed(1)}%</span>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -314,8 +409,8 @@ export const SubKegiatanMetricsOverview: React.FC<SubKegiatanMetricsOverviewProp
         </div>
       </Card>
 
-      {/* 2. Section "Nama Program dan Anggarannya (di dalamnya terdapat persentase anggaran masing-masing program)" */}
-      <div>
+      {/* 2. Section "Nama Program dan Anggarannya" */}
+      <div className="hidden">
         <div className="flex items-center justify-between mb-3 px-1">
           <div className="flex items-center gap-2">
             <FolderTree className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
@@ -327,20 +422,26 @@ export const SubKegiatanMetricsOverview: React.FC<SubKegiatanMetricsOverviewProp
             </span>
           </div>
           <span className="text-xs text-slate-500 hidden sm:inline-block">
-            Dilengkapi persentase kontribusi terhadap Total Anggaran SKPD
+            Klik kartu program untuk filter & langsung scroll ke daftar di bawah ↓
           </span>
         </div>
-
+  
         {/* Responsive Grid of Program Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {programStats.map((prog, idx) => {
             const theme = PROGRAM_THEMES[idx % PROGRAM_THEMES.length];
+            const isSelected = selectedProgram === prog.nama;
 
             return (
               <div
                 key={prog.nama}
-                onClick={() => onSelectProgram && onSelectProgram(prog.nama)}
-                className={`rounded-2xl border ${theme.borderColor} ${theme.hoverGlow} bg-white dark:bg-slate-900 p-4 sm:p-5 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden`}
+                onClick={() => handleProgramCardClick(prog.nama)}
+                className={`rounded-2xl border ${
+                  isSelected
+                    ? 'border-emerald-500 ring-2 ring-emerald-500/50 shadow-md bg-emerald-50/10 dark:bg-emerald-950/20'
+                    : `${theme.borderColor} ${theme.hoverGlow} bg-white dark:bg-slate-900 shadow-2xs hover:shadow-md`
+                } p-4 sm:p-5 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden`}
+                title={`Klik untuk memfilter dan scroll ke bagian daftar ${prog.nama}`}
               >
                 {/* Accent top stripe */}
                 <div className={`absolute top-0 left-0 right-0 h-1.5 ${theme.barColor}`} />
@@ -370,15 +471,58 @@ export const SubKegiatanMetricsOverview: React.FC<SubKegiatanMetricsOverviewProp
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 space-y-2.5">
-                  {/* Nominal Anggaran Program */}
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
-                      Alokasi Anggaran:
-                    </span>
-                    <CurrencyText
-                      amount={prog.totalPagu}
-                      className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white font-mono"
-                    />
+                  {/* 3 Kolom Nominal: Sebelum, Sesudah, Selisih (Font sama, warna berbeda jika selisih) */}
+                  <div className="grid grid-cols-3 gap-1.5 bg-slate-50/90 dark:bg-slate-850 p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-750">
+                    <div>
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Sebelum
+                      </span>
+                      <CurrencyText
+                        amount={prog.totalPaguIndikatif}
+                        className="text-xs font-bold text-slate-700 dark:text-slate-300 font-mono block truncate"
+                      />
+                    </div>
+
+                    <div>
+                      <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                        Sesudah
+                      </span>
+                      <CurrencyText
+                        amount={prog.totalPaguPerubahan}
+                        className="text-xs font-bold text-slate-800 dark:text-slate-100 font-mono block truncate"
+                      />
+                    </div>
+
+                    <div className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                          Selisih
+                        </span>
+                      </div>
+                      {prog.selisih !== 0 ? (
+                        <div
+                          className={`text-xs font-bold font-mono truncate ${
+                            prog.selisih > 0
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-rose-600 dark:text-rose-400'
+                          }`}
+                          title={`Selisih: ${prog.selisih > 0 ? '+' : ''}${prog.selisih.toLocaleString('id-ID')} (${prog.selisih > 0 ? '+' : ''}${prog.persenSelisih.toFixed(1)}%)`}
+                        >
+                          <span>{prog.selisih > 0 ? '+' : ''}</span>
+                          <CurrencyText
+                            amount={prog.selisih}
+                            className="inline text-xs font-bold font-mono"
+                          />
+                          <span className="text-[9px] ml-0.5 block font-semibold">
+                            ({prog.selisih > 0 ? '+' : ''}{prog.persenSelisih.toFixed(1)}%)
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs font-bold font-mono text-slate-400 dark:text-slate-500 block">
+                          0 (0%)
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Progress Bar of Program Allocation */}
@@ -389,8 +533,14 @@ export const SubKegiatanMetricsOverview: React.FC<SubKegiatanMetricsOverviewProp
                         className={`h-full ${theme.barColor} rounded-full transition-all`}
                       />
                     </div>
-                    <div className="flex items-center justify-between text-[11px] text-slate-500">
-                      <span>{prog.subCount} Sub-Kegiatan</span>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                      <span className="flex items-center gap-1 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 font-semibold transition-colors">
+                        <span>
+                          {prog.subCount} Sub-Kegiatan
+                          {prog.withRincianCount > 0 ? ` (${prog.withRincianCount} Berincian)` : ''}
+                        </span>
+                        <span className="text-xs">&darr;</span>
+                      </span>
                       <span className="font-semibold text-slate-700 dark:text-slate-300">
                         {prog.percentage.toFixed(2)}% dari Total SKPD
                       </span>

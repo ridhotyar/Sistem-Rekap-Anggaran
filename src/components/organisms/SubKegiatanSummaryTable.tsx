@@ -29,7 +29,8 @@ import { Badge } from '../atoms/Badge';
 import { CurrencyText } from '../atoms/CurrencyText';
 import { SearchBar } from '../molecules/SearchBar';
 import { EmptyState } from '../molecules/EmptyState';
-import { SubKegiatan, KeteranganSubBl } from '../../types/budget';
+import { SubKegiatan, KeteranganSubBl, RincianBelanjaItem } from '../../types/budget';
+import { BASE_SUB_KEGIATAN_LIST } from '../../data/initialSubKegiatanData';
 import { Link } from '../../services/router';
 
 export interface SubKegiatanSummaryTableProps {
@@ -40,19 +41,45 @@ export interface SubKegiatanSummaryTableProps {
   externalSelectedProgram?: string;
   onProgramChange?: (program: string) => void;
   isAdmin?: boolean;
+  rincianItems?: RincianBelanjaItem[];
 }
+
+export const getPagus = (sub: SubKegiatan) => {
+  const baseMatch = BASE_SUB_KEGIATAN_LIST.find((b) => Number(b.id_sub_bl) === Number(sub.id_sub_bl));
+  // Pagu Indikatif (Sebelum): Harus selalu TETAP dari data dasar murni
+  const paguIndikatif =
+    baseMatch && baseMatch.pagu_indikatif > 0
+      ? baseMatch.pagu_indikatif
+      : sub.pagu_indikatif && sub.pagu_indikatif > 0
+      ? sub.pagu_indikatif
+      : 0;
+  // Pagu Perubahan (Sesudah): Berubah HANYA ketika ada penyesuaian / update nominal aktual oleh user
+  const paguPerubahan =
+    sub.pagu_perubahan !== undefined
+      ? sub.pagu_perubahan
+      : paguIndikatif;
+  const selisih = paguPerubahan - paguIndikatif;
+  const persen = paguIndikatif > 0 ? (selisih / paguIndikatif) * 100 : 0;
+  return { paguIndikatif, paguPerubahan, selisih, persen };
+};
 
 interface KegiatanGroup {
   kode_kegiatan: string;
   nama_kegiatan: string;
-  totalPagu: number;
+  totalPaguIndikatif: number;
+  totalPaguPerubahan: number;
+  selisih: number;
+  persenSelisih: number;
   subKegiatans: SubKegiatan[];
 }
 
 interface ProgramGroup {
   kode_program: string;
   nama_program: string;
-  totalPagu: number;
+  totalPaguIndikatif: number;
+  totalPaguPerubahan: number;
+  selisih: number;
+  persenSelisih: number;
   subCount: number;
   withRincianCount: number;
   kegiatans: KegiatanGroup[];
@@ -67,6 +94,7 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
   externalSelectedProgram,
   onProgramChange,
   isAdmin = true,
+  rincianItems = [],
 }) => {
   // View mode: 'grouped' (default as requested by user) or 'flat'
   const [viewMode, setViewMode] = useState<'grouped' | 'flat'>('grouped');
@@ -95,6 +123,9 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
   // Program group expansion: true by default for all programs
   const [collapsedPrograms, setCollapsedPrograms] = useState<Record<string, boolean>>({});
 
+  // Kegiatan group expansion: map kegiatanKey -> boolean (true if expanded)
+  const [expandedKegiatans, setExpandedKegiatans] = useState<Record<string, boolean>>({});
+
   // Pagination for flat table mode
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(15);
@@ -114,6 +145,19 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
     setCollapsedPrograms((prev) => ({
       ...prev,
       [progName]: !prev[progName],
+    }));
+  };
+
+  const isKegiatanExpanded = (kegiatanKey: string) => {
+    // If user is searching, expand so matches are immediately visible
+    if (search.trim() !== '') return true;
+    return !!expandedKegiatans[kegiatanKey];
+  };
+
+  const toggleKegiatanExpanded = (kegiatanKey: string) => {
+    setExpandedKegiatans((prev) => ({
+      ...prev,
+      [kegiatanKey]: !prev[kegiatanKey],
     }));
   };
 
@@ -224,25 +268,52 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
 
     return Array.from(map.values())
       .map((prog) => {
-        const totalPagu = prog.subKegiatans.reduce((sum, s) => sum + (s.pagu_indikatif || 0), 0);
+        let totalProgIndikatif = 0;
+        let totalProgPerubahan = 0;
         const withRincianInProg = prog.subKegiatans.filter((s) => (s.rincian_count ?? 0) > 0).length;
 
         const kegiatans: KegiatanGroup[] = Array.from(prog.kegiatansMap.values())
-          .map((k) => ({
-            kode_kegiatan: k.kode_kegiatan,
-            nama_kegiatan: k.nama_kegiatan,
-            totalPagu: k.subKegiatans.reduce((sum, s) => sum + (s.pagu_indikatif || 0), 0),
-            subKegiatans: k.subKegiatans,
-          }))
+          .map((k) => {
+            let totalKegIndikatif = 0;
+            let totalKegPerubahan = 0;
+
+            k.subKegiatans.forEach((s) => {
+              const { paguIndikatif, paguPerubahan } = getPagus(s);
+              totalKegIndikatif += paguIndikatif;
+              totalKegPerubahan += paguPerubahan;
+            });
+
+            totalProgIndikatif += totalKegIndikatif;
+            totalProgPerubahan += totalKegPerubahan;
+
+            const selisihKeg = totalKegPerubahan - totalKegIndikatif;
+            const persenKeg = totalKegIndikatif > 0 ? (selisihKeg / totalKegIndikatif) * 100 : 0;
+
+            return {
+              kode_kegiatan: k.kode_kegiatan,
+              nama_kegiatan: k.nama_kegiatan,
+              totalPaguIndikatif: totalKegIndikatif,
+              totalPaguPerubahan: totalKegPerubahan,
+              selisih: selisihKeg,
+              persenSelisih: persenKeg,
+              subKegiatans: k.subKegiatans,
+            };
+          })
           .sort((a, b) => {
             if (a.kode_kegiatan && b.kode_kegiatan) return a.kode_kegiatan.localeCompare(b.kode_kegiatan);
             return a.nama_kegiatan.localeCompare(b.nama_kegiatan);
           });
 
+        const selisihProg = totalProgPerubahan - totalProgIndikatif;
+        const persenProg = totalProgIndikatif > 0 ? (selisihProg / totalProgIndikatif) * 100 : 0;
+
         return {
           kode_program: prog.kode_program,
           nama_program: prog.nama_program,
-          totalPagu,
+          totalPaguIndikatif: totalProgIndikatif,
+          totalPaguPerubahan: totalProgPerubahan,
+          selisih: selisihProg,
+          persenSelisih: persenProg,
           subCount: prog.subKegiatans.length,
           withRincianCount: withRincianInProg,
           kegiatans,
@@ -307,6 +378,35 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
     }
   };
 
+  // Expand / collapse all kegiatan sections
+  const areAllKegiatansExpanded = useMemo(() => {
+    let totalKeg = 0;
+    let expCount = 0;
+    programGroups.forEach((p) => {
+      p.kegiatans.forEach((k) => {
+        totalKeg++;
+        const key = `${p.nama_program}__${k.kode_kegiatan || k.nama_kegiatan}`;
+        if (isKegiatanExpanded(key)) expCount++;
+      });
+    });
+    return totalKeg > 0 && expCount === totalKeg;
+  }, [programGroups, expandedKegiatans, search]);
+
+  const toggleAllKegiatans = () => {
+    if (areAllKegiatansExpanded) {
+      setExpandedKegiatans({});
+    } else {
+      const next: Record<string, boolean> = {};
+      programGroups.forEach((p) => {
+        p.kegiatans.forEach((k) => {
+          const key = `${p.nama_program}__${k.kode_kegiatan || k.nama_kegiatan}`;
+          next[key] = true;
+        });
+      });
+      setExpandedKegiatans(next);
+    }
+  };
+
   const getStatusBadge = (status?: string) => {
     switch (status) {
       case 'Disetujui':
@@ -321,270 +421,329 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
 
   // Render single SubKegiatan Row (used in both Grouped table and Flat table)
   const renderSubKegiatanRow = (sub: SubKegiatan, rowIndex: number, showProgramCol = false) => {
-    const hasRincian = (sub.rincian_count ?? 0) > 0;
+    const matchingSubItems = (rincianItems || []).filter(
+      (item) => Number(item.id_sub_bl) === Number(sub.id_sub_bl)
+    );
+    const effectiveRincianCount =
+      sub.rincian_count !== undefined && sub.rincian_count > 0
+        ? sub.rincian_count
+        : matchingSubItems.length;
+    const effectiveTotalRincian =
+      sub.total_rincian !== undefined && sub.total_rincian > 0
+        ? sub.total_rincian
+        : matchingSubItems.reduce((acc, curr) => acc + (curr.user_total_harga || curr.total_harga || 0), 0);
+    const hasRincian = effectiveRincianCount > 0;
     const isExpanded = !!expandedSubs[sub.id];
     const totalPaket = sub.keterangan_list?.length ?? 0;
+    const { paguIndikatif, paguPerubahan, selisih, persen } = getPagus(sub);
 
     return (
-      <tr
-        key={sub.id}
-        className="hover:bg-emerald-50/50 dark:hover:bg-slate-800/60 transition-colors group"
-      >
-        <td className="py-3.5 px-4 text-center font-medium text-slate-400">
-          {rowIndex}
-        </td>
+      <React.Fragment key={sub.id}>
+        <tr
+          className={`hover:bg-emerald-50/50 dark:hover:bg-slate-800/60 transition-colors group ${
+            isExpanded ? 'bg-emerald-50/20 dark:bg-emerald-950/15' : ''
+          }`}
+        >
+          <td className="py-3.5 px-4 text-center font-medium text-slate-400">
+            {rowIndex}
+          </td>
 
-        <td className="py-3.5 px-4">
-          <div className="flex items-start gap-2.5">
-            <div
-              className={`p-1.5 rounded-lg mt-0.5 shrink-0 ${
-                hasRincian
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
-              }`}
-            >
-              <FolderKanban className="w-4 h-4" />
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="font-mono text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-200/60 dark:border-emerald-800/60">
-                  {sub.kode_sub_kegiatan || `ID ${sub.id_sub_bl}`}
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono">
-                  ID: {sub.id_sub_bl}
-                </span>
-                {sub.id_sub_giat && (
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    Giat: {sub.id_sub_giat}
-                  </span>
-                )}
-                {hasRincian && (
-                  <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/90 px-1.5 py-0.5 rounded flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" />
-                    Rincian Aktif
-                  </span>
-                )}
+          <td className="py-3.5 px-4">
+            <div className="flex items-start gap-2.5">
+              <div
+                className={`p-1.5 rounded-lg mt-0.5 shrink-0 ${
+                  hasRincian
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                }`}
+              >
+                <FolderKanban className="w-4 h-4" />
               </div>
 
-              <Link
-                to={`/sub-kegiatan/${sub.id_sub_bl}`}
-                onClick={() => onSelectSubKegiatan(sub)}
-                className="font-semibold text-sm text-slate-900 dark:text-white mt-1 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors leading-snug block hover:underline"
-                title="Buka rincian belanja sub-kegiatan (Klik kanan untuk Buka di tab baru)"
-              >
-                {sub.nama_sub_kegiatan}
-              </Link>
-
-              {/* Keterangan Sub Belanja dengan Opsi Ekstend / Collapse */}
-              {sub.keterangan_list && sub.keterangan_list.length > 0 && (
-                <div className="mt-2.5 pt-2 border-t border-slate-200/70 dark:border-slate-800">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-mono text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-200/60 dark:border-emerald-800/60">
+                    {sub.kode_sub_kegiatan || `ID ${sub.id_sub_bl}`}
+                  </span>
+                  {totalPaket > 0 && (
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleExpandSub(sub.id);
                       }}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/70 dark:hover:bg-emerald-900/70 border border-emerald-200/80 dark:border-emerald-800/60 transition-colors cursor-pointer group/toggle shadow-2xs"
-                      title={isExpanded ? 'Klik untuk meringkaskan tampilan paket' : 'Klik untuk mengekstend dan melihat nominal masing-masing paket'}
+                      className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md border transition-all cursor-pointer ${
+                        isExpanded
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                          : 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/80 hover:bg-emerald-100 dark:hover:bg-emerald-900/60'
+                      }`}
+                      title={isExpanded ? 'Tutup daftar paket belanja' : 'Buka daftar paket belanja'}
                     >
-                      <Package className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span>
-                        {totalPaket > 1
-                          ? `Keterangan Sub Belanja (${totalPaket} Paket Aktivitas):`
-                          : 'Keterangan Sub Belanja:'}
-                      </span>
-                      <span className="text-[10px] text-emerald-700 dark:text-emerald-300 bg-white dark:bg-slate-900 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-800 font-medium ml-0.5">
-                        {isExpanded ? 'Tutup Ringkas' : 'Ekstend Paket'}
-                      </span>
+                      <Package className="w-3 h-3" />
+                      <span>{totalPaket} Paket</span>
                       {isExpanded ? (
-                        <ChevronUp className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-300 shrink-0" />
+                        <ChevronUp className="w-3 h-3" />
                       ) : (
-                        <ChevronDown className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-300 shrink-0" />
+                        <ChevronDown className="w-3 h-3" />
                       )}
                     </button>
-
-                    {!isExpanded && (
-                      <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
-                        Total Pagu:
-                        <CurrencyText
-                          amount={sub.pagu_indikatif}
-                          className="font-semibold text-emerald-700 dark:text-emerald-400"
-                        />
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Tampilan Ringkas (Saat di-collapse) */}
-                  {!isExpanded && (
-                    <div
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleExpandSub(sub.id);
-                      }}
-                      className="mt-1.5 p-2 rounded-lg bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800/80 flex items-center justify-between gap-2 text-xs cursor-pointer hover:bg-emerald-50/50 dark:hover:bg-slate-800/60 transition-colors group/ringkas"
-                    >
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                        <span className="text-[11px] text-slate-700 dark:text-slate-300 font-medium truncate">
-                          {sub.keterangan_list[0]?.ket_bl_teks}
-                        </span>
-                        {totalPaket > 1 && (
-                          <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-100/70 dark:bg-emerald-950 px-1.5 py-0.5 rounded shrink-0">
-                            +{totalPaket - 1} paket lainnya
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium shrink-0 flex items-center gap-1 group-hover/ringkas:underline">
-                        Lihat Nominal Paket <ChevronDown className="w-3 h-3" />
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Tampilan Terbuka (Saat di-ekstend): Tampilkan nominal masing-masing paket & hilangkan ID paket */}
-                  {isExpanded && (
-                    <div className="mt-2 space-y-1.5 pl-0.5">
-                      {sub.keterangan_list.map((ket, kIdx) => {
-                        const nominal =
-                          ket.total_pagu !== undefined && ket.total_pagu > 0
-                            ? ket.total_pagu
-                            : sub.keterangan_list!.length === 1
-                            ? sub.pagu_indikatif
-                            : 0;
-
-                        return (
-                          <div
-                            key={ket.id_unik || ket.id_ket_sub_bl || kIdx}
-                            className="flex items-center justify-between gap-3 text-[11px] text-slate-900 dark:text-slate-100 bg-emerald-50/70 dark:bg-emerald-950/40 p-2.5 rounded-lg border border-emerald-200/80 dark:border-emerald-900/60 shadow-2xs hover:border-emerald-300 dark:hover:border-emerald-700 transition-colors"
-                          >
-                            <div className="flex items-start gap-2 min-w-0 flex-1">
-                              <span className="w-5 h-5 rounded-full bg-emerald-700 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
-                                {kIdx + 1}
-                              </span>
-                              <div className="min-w-0">
-                                <span className="font-semibold block text-slate-900 dark:text-white leading-snug break-words">
-                                  {ket.ket_bl_teks}
-                                </span>
-                                {ket.rincian_count ? (
-                                  <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                                    {ket.rincian_count} rincian belanja
-                                  </span>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            <div className="text-right shrink-0 bg-white dark:bg-slate-900/90 px-2.5 py-1.5 rounded-md border border-emerald-200/80 dark:border-emerald-800/80 shadow-2xs">
-                              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold block">
-                                Nominal Paket
-                              </span>
-                              <CurrencyText
-                                amount={nominal}
-                                className="font-bold text-xs text-emerald-700 dark:text-emerald-400 font-mono"
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
                   )}
                 </div>
-              )}
 
-              <div className="flex items-center gap-3 mt-2 text-[11px] text-slate-500 flex-wrap">
-                <span className="flex items-center gap-1">
-                  <Building2 className="w-3 h-3 text-slate-400" />
-                  {sub.nama_skpd || 'Badan Kesatuan Bangsa dan Politik Dalam Negeri'}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3 h-3 text-slate-400" />
-                  Tahun {sub.tahun}
-                </span>
+                {/* Sub-Kegiatan Title */}
+                <div
+                  onClick={() => toggleExpandSub(sub.id)}
+                  className="mt-1 cursor-pointer group/title"
+                  title="Klik nama sub-kegiatan untuk membuka atau menutup daftar paket belanja"
+                >
+                  <span className="font-semibold text-sm text-slate-900 dark:text-white group-hover/title:text-emerald-700 dark:group-hover/title:text-emerald-400 transition-colors leading-snug block">
+                    {sub.nama_sub_kegiatan}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-        </td>
+          </td>
 
-        {showProgramCol && (
-          <td className="py-3.5 px-4 hidden md:table-cell">
-            <div className="text-slate-800 dark:text-slate-200 font-medium truncate max-w-xs">
-              {sub.nama_kegiatan || sub.nama_giat || '-'}
-            </div>
-            <div className="text-[11px] text-slate-500 truncate max-w-xs mt-0.5">
-              {sub.nama_program || '-'}
+          {showProgramCol && (
+            <td className="py-3.5 px-4 hidden md:table-cell">
+              <div className="text-slate-800 dark:text-slate-200 font-medium truncate max-w-xs">
+                {sub.nama_kegiatan || sub.nama_giat || '-'}
+              </div>
+              <div className="text-[11px] text-slate-500 truncate max-w-xs mt-0.5">
+                {sub.nama_program || '-'}
+              </div>
+            </td>
+          )}
+
+          {/* Kolom Sebelum Sub-Kegiatan */}
+          <td className="py-3.5 px-3.5 text-right whitespace-nowrap min-w-[125px]">
+            <CurrencyText
+              amount={paguIndikatif}
+              className="text-slate-700 dark:text-slate-300 font-bold text-xs sm:text-sm font-mono"
+            />
+          </td>
+
+          {/* Kolom Sesudah Sub-Kegiatan */}
+          <td className="py-3.5 px-3.5 text-right whitespace-nowrap min-w-[125px]">
+            <CurrencyText
+              amount={paguPerubahan}
+              className="text-slate-900 dark:text-white font-bold text-xs sm:text-sm font-mono"
+            />
+          </td>
+
+          {/* Kolom Selisih Sub-Kegiatan */}
+          <td className="py-3.5 px-3.5 text-right whitespace-nowrap min-w-[125px]">
+            {selisih !== 0 ? (
+              <div>
+                <div
+                  className={`text-xs sm:text-sm font-bold font-mono ${
+                    selisih > 0
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-rose-600 dark:text-rose-400'
+                  }`}
+                  title={`Selisih: ${selisih > 0 ? '+' : ''}${selisih.toLocaleString('id-ID')} (${selisih > 0 ? '+' : ''}${persen.toFixed(1)}%)`}
+                >
+                  {selisih > 0 ? '+' : ''}
+                  <CurrencyText amount={selisih} className="inline text-xs sm:text-sm font-bold font-mono" />
+                </div>
+                <div
+                  className={`text-[10px] font-semibold mt-0.5 ${
+                    selisih > 0
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-rose-600 dark:text-rose-400'
+                  }`}
+                >
+                  ({selisih > 0 ? '+' : ''}{persen.toFixed(1)}%)
+                </div>
+              </div>
+            ) : (
+              <span className="text-slate-400 dark:text-slate-500 font-mono text-xs sm:text-sm font-bold">
+                0 (0%)
+              </span>
+            )}
+          </td>
+
+          <td className="py-3.5 px-2 w-20 text-center">
+            <div className="flex items-center justify-center gap-1.5">
+              <Link
+                to={`/sub-kegiatan/${sub.id_sub_bl}`}
+                onClick={() => onSelectSubKegiatan(sub)}
+                className={`p-2 rounded-lg text-xs font-semibold shadow-2xs transition-all cursor-pointer inline-flex items-center justify-center ${
+                  hasRincian
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-700/20'
+                    : 'bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
+                }`}
+                title={hasRincian ? 'Buka rincian belanja sub-kegiatan' : 'Lihat / Buat rincian belanja sub-kegiatan'}
+                aria-label={hasRincian ? 'Buka rincian belanja' : 'Lihat / Buat rincian'}
+              >
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+              {isAdmin && onDeleteSubKegiatan && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteSubKegiatan(sub);
+                  }}
+                  className="p-2 rounded-lg text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800/50 transition-colors inline-flex items-center justify-center cursor-pointer"
+                  title="Hapus Sub-Kegiatan ini (Khusus Admin)"
+                  aria-label="Hapus Sub-Kegiatan"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </td>
-        )}
+        </tr>
 
-        <td className="py-3.5 px-4 text-right">
-          <CurrencyText
-            amount={sub.pagu_indikatif}
-            className="text-slate-900 dark:text-white font-semibold text-sm"
-          />
-          <div className="text-[10px] text-slate-400 mt-0.5">
-            Pagu Indikatif
-          </div>
-        </td>
+        {/* Baris Daftar Paket Belanja yang muncul ke bawah sejajar dengan Kolom Pagu Indikatif & Pagu Perubahan */}
+        {isExpanded && sub.keterangan_list && sub.keterangan_list.length > 0 &&
+          sub.keterangan_list.map((ket, kIdx) => {
+            const pkgItems = matchingSubItems.filter((item) => {
+              if (sub.keterangan_list && sub.keterangan_list.length === 1) return true;
+              return (
+                Number(item.id_ket_sub_bl) === Number(ket.id_ket_sub_bl) ||
+                (item.ket_bl_teks && ket.ket_bl_teks && item.ket_bl_teks.trim().toLowerCase() === ket.ket_bl_teks.trim().toLowerCase())
+              );
+            });
+            // Nilai Sebelum Paket: Total dasar murni rincian sebelum update user
+            const pkgBaseTotal = pkgItems.reduce((acc, curr) => {
+              if (curr.is_user_added) return acc;
+              const basePrice = curr.base_total_harga !== undefined ? curr.base_total_harga : curr.total_harga || 0;
+              return acc + basePrice;
+            }, 0);
 
-        <td className="py-3.5 px-4 text-center">
-          <div className="inline-flex flex-col items-center">
-            <span
-              className={`inline-flex items-center gap-1 font-semibold ${
-                hasRincian
-                  ? 'text-emerald-700 dark:text-emerald-400'
-                  : 'text-slate-400 dark:text-slate-500'
-              }`}
-            >
-              <Layers className="w-3 h-3" />
-              {sub.rincian_count || 0} Item
-            </span>
-            <span className="text-[10px] text-slate-500 font-mono">
-              {sub.total_rincian ? (
-                <CurrencyText amount={sub.total_rincian} compact />
-              ) : (
-                'Belum ada rincian'
-              )}
-            </span>
-          </div>
-        </td>
+            // Cek apakah ada penyesuaian nominal aktual oleh user pada paket ini
+            const hasUserAdj = pkgItems.some(
+              (curr) =>
+                (curr.user_total_harga !== undefined &&
+                  curr.user_total_harga !== (curr.base_total_harga ?? curr.total_harga)) ||
+                curr.is_user_added
+            );
 
-        <td className="py-3.5 px-4 text-center">
-          {getStatusBadge(sub.status_verifikasi)}
-        </td>
+            // Nilai Sesudah Paket: Total rincian dengan penyesuaian user (jika belum diedit, sama persis dengan Sebelum)
+            const pkgUpdatedTotal = hasUserAdj
+              ? pkgItems.reduce((acc, curr) => {
+                  const hasAdj = curr.user_total_harga !== undefined || curr.is_user_added;
+                  const price = hasAdj ? curr.user_total_harga || 0 : (curr.base_total_harga ?? curr.total_harga) || 0;
+                  return acc + price;
+                }, 0)
+              : pkgBaseTotal;
 
-        <td className="py-3.5 px-4 text-center">
-          <div className="flex items-center justify-center gap-1.5">
-            <Link
-              to={`/sub-kegiatan/${sub.id_sub_bl}`}
-              onClick={() => onSelectSubKegiatan(sub)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition-all cursor-pointer ${
-                hasRincian
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-700/20'
-                  : 'bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
-              }`}
-              title="Buka rincian belanja sub-kegiatan (Klik kanan untuk Buka di tab baru)"
-            >
-              <span>{hasRincian ? 'Buka Rincian' : 'Lihat / Buat'}</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-            {isAdmin && onDeleteSubKegiatan && (
-              <Button
-                variant="danger"
-                size="xs"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteSubKegiatan(sub);
-                }}
-                icon={<Trash2 className="w-3.5 h-3.5" />}
-                title="Hapus Sub-Kegiatan ini (Khusus Admin)"
-                className="px-2"
+            const hasItems = pkgItems.length > 0;
+            const pkgIndikatif = hasItems
+              ? pkgBaseTotal
+              : (ket as any).pagu_sebelum !== undefined
+              ? (ket as any).pagu_sebelum
+              : ket.total_pagu !== undefined && ket.total_pagu > 0
+              ? ket.total_pagu
+              : sub.keterangan_list && sub.keterangan_list.length === 1
+              ? paguIndikatif
+              : 0;
+
+            const pkgPerubahan = hasItems
+              ? pkgUpdatedTotal
+              : (ket as any).pagu_sesudah !== undefined
+              ? (ket as any).pagu_sesudah
+              : pkgIndikatif;
+
+            const pkgSelisih = pkgPerubahan - pkgIndikatif;
+            const pkgPersen = pkgIndikatif > 0 ? (pkgSelisih / pkgIndikatif) * 100 : 0;
+
+            return (
+              <tr
+                key={ket.id_unik || ket.id_ket_sub_bl || `${sub.id}-pkg-${kIdx}`}
+                className="bg-emerald-50/40 dark:bg-emerald-950/25 border-b border-emerald-100/60 dark:border-slate-800/70 hover:bg-emerald-100/40 dark:hover:bg-emerald-900/30 transition-colors"
               >
-                Hapus
-              </Button>
-            )}
-          </div>
-        </td>
-      </tr>
+                <td className="py-2.5 px-4 text-center font-mono text-[11px] text-slate-400 dark:text-slate-500">
+                  <span className="text-slate-400 dark:text-slate-500 font-mono text-xs">↳</span>
+                </td>
+
+                <td className="py-2.5 px-4">
+                  <div className="flex items-center gap-2.5 pl-3 sm:pl-5">
+                    <span className="w-5 h-5 rounded-full bg-emerald-600 dark:bg-emerald-700 text-white flex items-center justify-center shrink-0 text-[10px] font-bold shadow-2xs">
+                      {kIdx + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 block leading-snug">
+                        {ket.ket_bl_teks}
+                      </span>
+                    </div>
+                  </div>
+                </td>
+
+                {showProgramCol && (
+                  <td className="py-2.5 px-4 hidden md:table-cell text-[11px] text-slate-400 italic">
+                    -
+                  </td>
+                )}
+
+                {/* Kolom Sebelum Paket */}
+                <td className="py-2.5 px-3.5 text-right whitespace-nowrap min-w-[125px]">
+                  <CurrencyText
+                    amount={pkgIndikatif}
+                    className="text-slate-700 dark:text-slate-300 font-bold text-xs sm:text-sm font-mono"
+                  />
+                </td>
+
+                {/* Kolom Sesudah Paket */}
+                <td className="py-2.5 px-3.5 text-right whitespace-nowrap min-w-[125px]">
+                  <CurrencyText
+                    amount={pkgPerubahan}
+                    className="text-slate-900 dark:text-white font-bold text-xs sm:text-sm font-mono"
+                  />
+                </td>
+
+                {/* Kolom Selisih Paket */}
+                <td className="py-2.5 px-3.5 text-right whitespace-nowrap min-w-[125px]">
+                  {pkgSelisih !== 0 ? (
+                    <div>
+                      <div
+                        className={`text-xs sm:text-sm font-bold font-mono ${
+                          pkgSelisih > 0
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-rose-600 dark:text-rose-400'
+                        }`}
+                      >
+                        {pkgSelisih > 0 ? '+' : ''}
+                        <CurrencyText amount={pkgSelisih} className="inline text-xs sm:text-sm font-bold font-mono" />
+                      </div>
+                      <div
+                        className={`text-[9px] font-semibold mt-0.5 ${
+                          pkgSelisih > 0
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-rose-600 dark:text-rose-400'
+                        }`}
+                      >
+                        ({pkgSelisih > 0 ? '+' : ''}{pkgPersen.toFixed(1)}%)
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="text-slate-400 dark:text-slate-500 font-mono text-xs sm:text-sm font-bold">
+                      0 (0%)
+                    </span>
+                  )}
+                </td>
+
+                {/* Kolom Aksi */}
+                <td className="py-2.5 px-2 w-20 text-center">
+                  <span className="text-slate-300 dark:text-slate-600 text-xs">-</span>
+                </td>
+              </tr>
+            );
+          })}
+
+        {isExpanded && (!sub.keterangan_list || sub.keterangan_list.length === 0) && (
+          <tr key={`${sub.id}-empty`} className="bg-slate-50/50 dark:bg-slate-800/30">
+            <td
+              colSpan={showProgramCol ? 7 : 6}
+              className="py-2.5 px-4 text-center text-xs text-slate-500 italic"
+            >
+              Belum ada paket keterangan belanja terdaftar.
+            </td>
+          </tr>
+        )}
+      </React.Fragment>
     );
   };
 
@@ -741,15 +900,27 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
 
             {/* Expand / Collapse All Programs button (when in grouped view) */}
             {viewMode === 'grouped' && (
-              <button
-                type="button"
-                onClick={toggleAllPrograms}
-                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors font-medium shadow-2xs cursor-pointer"
-                title={areAllProgramsExpanded ? 'Tutup semua grup program' : 'Buka semua grup program'}
-              >
-                <FolderKanban className="w-3.5 h-3.5 text-emerald-600" />
-                <span>{areAllProgramsExpanded ? 'Tutup Semua Program' : 'Buka Semua Program'}</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={toggleAllPrograms}
+                  className="inline-flex items-center gap-1.5 text-xs px-2.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors font-medium shadow-2xs cursor-pointer"
+                  title={areAllProgramsExpanded ? 'Tutup semua grup program' : 'Buka semua grup program'}
+                >
+                  <FolderTree className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{areAllProgramsExpanded ? 'Tutup Program' : 'Buka Program'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={toggleAllKegiatans}
+                  className="inline-flex items-center gap-1.5 text-xs px-2.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors font-medium shadow-2xs cursor-pointer"
+                  title={areAllKegiatansExpanded ? 'Tutup semua daftar sub-kegiatan' : 'Buka semua daftar sub-kegiatan'}
+                >
+                  <FolderKanban className="w-3.5 h-3.5 text-teal-600" />
+                  <span>{areAllKegiatansExpanded ? 'Tutup Kegiatan' : 'Buka Kegiatan'}</span>
+                </button>
+              </>
             )}
 
             {/* Expand / Collapse All Packages */}
@@ -757,10 +928,10 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
               type="button"
               onClick={toggleAllPackagesExpanded}
               className="inline-flex items-center gap-1.5 text-xs px-2.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors font-medium shadow-2xs cursor-pointer"
-              title={areAllPackagesExpanded ? 'Ringkaskan tampilan semua paket' : 'Buka tampilan semua paket'}
+              title={areAllPackagesExpanded ? 'Tutup tampilan daftar paket' : 'Buka tampilan daftar paket'}
             >
-              <ChevronsUpDown className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{areAllPackagesExpanded ? 'Ringkaskan Paket' : 'Ekstend Paket'}</span>
+              <Package className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{areAllPackagesExpanded ? 'Tutup Paket' : 'Buka Paket'}</span>
             </button>
           </div>
         </div>
@@ -890,16 +1061,60 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
                     </div>
                   </div>
 
-                  {/* Program Total Pagu & Collapse Button */}
-                  <div className="flex items-center gap-4 shrink-0 self-end md:self-center">
-                    <div className="text-right bg-white dark:bg-slate-900 px-3.5 py-2 rounded-xl border border-emerald-200/80 dark:border-emerald-800/80 shadow-2xs">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
-                        Total Pagu Program
+                  {/* Program Total Pagu (Sebelum, Sesudah, Selisih) & Collapse Button */}
+                  <div className="flex items-center gap-2.5 shrink-0 self-end md:self-center flex-wrap">
+                    <div className="text-right bg-white dark:bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs min-w-[110px]">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
+                        Sebelum
                       </span>
                       <CurrencyText
-                        amount={group.totalPagu}
-                        className="text-base sm:text-lg font-extrabold text-emerald-700 dark:text-emerald-400 font-mono"
+                        amount={group.totalPaguIndikatif}
+                        className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300 font-mono"
                       />
+                    </div>
+
+                    <div className="text-right bg-white dark:bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs min-w-[110px]">
+                      <span className="text-[9px] uppercase font-bold text-slate-500 dark:text-slate-400 block tracking-wider">
+                        Sesudah
+                      </span>
+                      <CurrencyText
+                        amount={group.totalPaguPerubahan}
+                        className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white font-mono"
+                      />
+                    </div>
+
+                    <div className="text-right bg-white dark:bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs min-w-[115px]">
+                      <div className="flex items-center justify-end gap-1">
+                        <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">
+                          Selisih
+                        </span>
+                        {group.selisih !== 0 && (
+                          <span
+                            className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
+                              group.selisih > 0
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                            }`}
+                          >
+                            {group.selisih > 0 ? '+' : ''}{group.persenSelisih.toFixed(1)}%
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        className={`text-xs sm:text-sm font-bold font-mono ${
+                          group.selisih > 0
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : group.selisih < 0
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : 'text-slate-400 dark:text-slate-500'
+                        }`}
+                      >
+                        {group.selisih > 0 ? '+' : ''}
+                        <CurrencyText
+                          amount={group.selisih}
+                          className="inline text-xs sm:text-sm font-bold font-mono"
+                        />
+                      </div>
                     </div>
 
                     <div className="p-2 rounded-lg bg-emerald-100/70 dark:bg-slate-700 text-emerald-800 dark:text-emerald-300 group-hover/prog:bg-emerald-200 transition-colors">
@@ -912,62 +1127,141 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
                   </div>
                 </div>
 
-                {/* Sub-Kegiatan List within this Program (Grouped by Kegiatan) */}
+                {/* Sub-Kegiatan List within this Program (Grouped by Kegiatan Dropdowns) */}
                 {isExpanded && (
-                  <div className="p-3 sm:p-5 bg-white dark:bg-slate-900/60 space-y-6">
-                    {group.kegiatans.map((kegiatan, kIdx) => (
-                      <div
-                        key={kegiatan.nama_kegiatan + kIdx}
-                        className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xs bg-white dark:bg-slate-900"
-                      >
-                        {/* Kegiatan Sub-Header */}
-                        <div className="px-4 py-3 bg-slate-100/80 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-emerald-600" />
-                            {kegiatan.kode_kegiatan && (
-                              <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
-                                {kegiatan.kode_kegiatan}
-                              </span>
-                            )}
-                            <h4 className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-100">
-                              <span className="text-slate-500 dark:text-slate-400 font-normal mr-1">Kegiatan:</span>
-                              {kegiatan.nama_kegiatan}
-                            </h4>
+                  <div className="p-3 sm:p-5 bg-slate-50/60 dark:bg-slate-900/40 space-y-4">
+                    {group.kegiatans.map((kegiatan, kIdx) => {
+                      const kegiatanKey = `${group.nama_program}__${kegiatan.kode_kegiatan || kegiatan.nama_kegiatan}`;
+                      const isKegExpanded = isKegiatanExpanded(kegiatanKey);
+
+                      return (
+                        <div
+                          key={kegiatanKey}
+                          className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xs bg-white dark:bg-slate-900 transition-all"
+                        >
+                          {/* Kegiatan Dropdown Header: Klik untuk membuka/menutup daftar sub-kegiatan */}
+                          <div
+                            onClick={() => toggleKegiatanExpanded(kegiatanKey)}
+                            className="p-3.5 sm:p-4 bg-gradient-to-r from-teal-50/70 via-slate-50/50 to-white dark:from-slate-800/90 dark:via-slate-800/60 dark:to-slate-900 border-b border-slate-200 dark:border-slate-800 cursor-pointer hover:from-teal-100/70 hover:to-slate-100/70 dark:hover:from-slate-750 dark:hover:to-slate-800 transition-all group/keg flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                          >
+                            <div className="flex items-start sm:items-center gap-3">
+                              <div className="p-2 rounded-xl bg-teal-600 dark:bg-teal-500 text-white shadow-2xs shrink-0 mt-0.5 sm:mt-0">
+                                <FolderKanban className="w-4 h-4" />
+                              </div>
+
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {kegiatan.kode_kegiatan && (
+                                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-teal-800 text-white shadow-2xs">
+                                      {kegiatan.kode_kegiatan}
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-teal-800 dark:text-teal-400">
+                                    Kegiatan Induk ({kIdx + 1} dari {group.kegiatans.length})
+                                  </span>
+                                  <Badge variant="neutral" size="xs">
+                                    {kegiatan.subKegiatans.length} Sub-Kegiatan
+                                  </Badge>
+                                </div>
+
+                                <h4 className="font-bold text-sm text-slate-800 dark:text-slate-100 mt-1 group-hover/keg:text-teal-700 dark:group-hover/keg:text-teal-400 transition-colors">
+                                  {kegiatan.nama_kegiatan}
+                                </h4>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center flex-wrap">
+                              <div className="text-right bg-white dark:bg-slate-850 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs min-w-[100px]">
+                                <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
+                                  Sebelum
+                                </span>
+                                <CurrencyText
+                                  amount={kegiatan.totalPaguIndikatif}
+                                  className="text-xs font-bold text-slate-700 dark:text-slate-300 font-mono"
+                                />
+                              </div>
+
+                              <div className="text-right bg-white dark:bg-slate-850 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs min-w-[100px]">
+                                <span className="text-[9px] uppercase font-bold text-slate-500 dark:text-slate-400 block tracking-wider">
+                                  Sesudah
+                                </span>
+                                <CurrencyText
+                                  amount={kegiatan.totalPaguPerubahan}
+                                  className="text-xs font-bold text-slate-900 dark:text-white font-mono"
+                                />
+                              </div>
+
+                              <div className="text-right bg-white dark:bg-slate-850 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs min-w-[105px]">
+                                <div className="flex items-center justify-end gap-1">
+                                  <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">
+                                    Selisih
+                                  </span>
+                                  {kegiatan.selisih !== 0 && (
+                                    <span
+                                      className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
+                                        kegiatan.selisih > 0
+                                          ? 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300'
+                                          : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                      }`}
+                                    >
+                                      {kegiatan.selisih > 0 ? '+' : ''}{kegiatan.persenSelisih.toFixed(1)}%
+                                    </span>
+                                  )}
+                                </div>
+                                <div
+                                  className={`text-xs font-bold font-mono ${
+                                    kegiatan.selisih > 0
+                                      ? 'text-emerald-600 dark:text-emerald-400'
+                                      : kegiatan.selisih < 0
+                                      ? 'text-rose-600 dark:text-rose-400'
+                                      : 'text-slate-400 dark:text-slate-500'
+                                  }`}
+                                >
+                                  {kegiatan.selisih > 0 ? '+' : ''}
+                                  <CurrencyText
+                                    amount={kegiatan.selisih}
+                                    className="inline text-xs font-bold font-mono"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="p-1.5 rounded-lg bg-teal-100/70 dark:bg-slate-700 text-teal-800 dark:text-teal-200 group-hover/keg:bg-teal-200 dark:group-hover/keg:bg-teal-800 transition-colors">
+                                {isKegExpanded ? (
+                                  <ChevronUp className="w-4 h-4" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4" />
+                                )}
+                              </div>
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-2 text-xs">
-                            <span className="text-slate-500 font-medium">
-                              {kegiatan.subKegiatans.length} Sub-Kegiatan
-                            </span>
-                            <span className="text-slate-300 dark:text-slate-700">•</span>
-                            <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-                              <CurrencyText amount={kegiatan.totalPagu} />
-                            </span>
-                          </div>
+                          {/* Table Sub-Kegiatan: Muncul saat dropdown Kegiatan dibuka */}
+                          {isKegExpanded && (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs border-collapse">
+                                <thead>
+                                  <tr className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-700/80 text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                                    <th className="py-2.5 px-4 w-12 text-center">No</th>
+                                    <th className="py-2.5 px-4 min-w-[320px]">
+                                      Sub-Kegiatan (Klik nama untuk melihat paket)
+                                    </th>
+                                    <th className="py-2.5 px-3.5 min-w-[125px] text-right">Sebelum</th>
+                                    <th className="py-2.5 px-3.5 min-w-[125px] text-right">Sesudah</th>
+                                    <th className="py-2.5 px-3.5 min-w-[125px] text-right">Selisih</th>
+                                    <th className="py-2.5 px-2 w-20 text-center">Aksi</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
+                                  {kegiatan.subKegiatans.map((sub, sIdx) =>
+                                    renderSubKegiatanRow(sub, sIdx + 1, false)
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
                         </div>
-
-                        {/* Table for this Kegiatan's sub-kegiatans */}
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left text-xs border-collapse">
-                            <thead>
-                              <tr className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-700/80 text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                                <th className="py-2.5 px-4 w-12 text-center">No</th>
-                                <th className="py-2.5 px-4 min-w-[340px]">Sub-Kegiatan & Paket Keterangan Belanja</th>
-                                <th className="py-2.5 px-4 min-w-[140px] text-right">Pagu Indikatif</th>
-                                <th className="py-2.5 px-4 min-w-[120px] text-center">Rincian Belanja</th>
-                                <th className="py-2.5 px-4 w-28 text-center">Status</th>
-                                <th className="py-2.5 px-4 w-44 text-center">Aksi</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
-                              {kegiatan.subKegiatans.map((sub, sIdx) =>
-                                renderSubKegiatanRow(sub, sIdx + 1, false)
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -981,12 +1275,12 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
             <thead>
               <tr className="bg-slate-100/75 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold uppercase tracking-wider text-[11px]">
                 <th className="py-3 px-4 w-12 text-center">No</th>
-                <th className="py-3 px-4 min-w-[320px]">Sub-Kegiatan & Paket Keterangan Belanja</th>
-                <th className="py-3 px-4 min-w-[240px] hidden md:table-cell">Program & Kegiatan Induk</th>
-                <th className="py-3 px-4 min-w-[140px] text-right">Pagu Indikatif</th>
-                <th className="py-3 px-4 min-w-[120px] text-center">Rincian Belanja</th>
-                <th className="py-3 px-4 w-28 text-center">Status</th>
-                <th className="py-3 px-4 w-44 text-center">Aksi</th>
+                <th className="py-3 px-4 min-w-[300px]">Sub-Kegiatan & Paket Keterangan Belanja</th>
+                <th className="py-3 px-4 min-w-[220px] hidden md:table-cell">Program & Kegiatan Induk</th>
+                <th className="py-3 px-3.5 min-w-[125px] text-right">Sebelum</th>
+                <th className="py-3 px-3.5 min-w-[125px] text-right">Sesudah</th>
+                <th className="py-3 px-3.5 min-w-[125px] text-right">Selisih</th>
+                <th className="py-3 px-2 w-20 text-center">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800">

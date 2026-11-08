@@ -57,6 +57,9 @@ export interface RincianBelanjaItem {
   koefisien: string;
   harga_satuan: number;
   total_harga: number;
+  base_total_harga?: number;
+  base_harga_satuan?: number;
+  base_koefisien?: string;
   id_akun: number;
   kode_akun: string;
   nama_akun: string;
@@ -105,6 +108,7 @@ export interface SubKegiatan {
   id_daerah: number;
   nama_daerah?: string;
   pagu_indikatif: number;
+  pagu_perubahan?: number;
   rincian_count?: number;
   total_rincian?: number;
   status_verifikasi?: 'Draft' | 'Divalidasi' | 'Disetujui' | 'Final';
@@ -131,3 +135,24 @@ export interface SipdApiResponse<T = RincianBelanjaItem[]> {
 
 export type ViewMode = 'summary' | 'detail';
 export type GroupingMode = 'keterangan_paket' | 'akun' | 'subs_sub' | 'flat';
+
+export type StandarHargaCategory = 'SSH' | 'HSPK' | 'ASB' | 'SBU';
+
+export interface StandarHargaItem {
+  id: string; // unique ID
+  id_standar_harga: number;
+  kategori: StandarHargaCategory; // 'SSH' | 'HSPK' | 'ASB' | 'SBU'
+  kode_standar_harga: string;
+  nama_standar_harga: string; // Uraian / Nama barang/jasa
+  spek: string; // Spesifikasi
+  satuan: string; // Satuan (e.g. Paket, Rim, Orang, Orang/Jam, m2, unit)
+  harga_satuan: number;
+  kode_akun?: string;
+  nama_akun?: string;
+  id_akun?: number;
+  kelompok_standar_harga?: string; // e.g. "Alat Tulis Kantor", "Honorarium", "Pekerjaan Gedung"
+  tipe_dokumen?: string;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}

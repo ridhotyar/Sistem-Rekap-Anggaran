@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { HeaderNavbar } from '../organisms/HeaderNavbar';
+import { AppSidebar } from '../organisms/AppSidebar';
 import type { User } from 'firebase/auth';
-
 import { AppUser } from '../../types/auth';
 
 export interface AppLayoutProps {
@@ -15,6 +15,7 @@ export interface AppLayoutProps {
   onRefreshData?: () => void;
   onOpenFirebaseGuide?: () => void;
   isSyncing?: boolean;
+  standarHargaCount?: number;
 }
 
 export const AppLayout: React.FC<AppLayoutProps> = ({
@@ -28,42 +29,65 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   onRefreshData,
   onOpenFirebaseGuide,
   isSyncing,
+  standarHargaCount,
 }) => {
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
   return (
-    <div className="min-h-screen bg-slate-100/70 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-emerald-500/20 selection:text-emerald-900">
-      {/* Top Navbar */}
-      <HeaderNavbar
+    <div className="min-h-screen bg-slate-100/70 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-row font-sans selection:bg-emerald-500/20 selection:text-emerald-900">
+      {/* Side Menu Bar (Sidebar) */}
+      <AppSidebar
         currentUser={currentUser}
         appUser={appUser}
         isFirebaseConnected={isFirebaseConnected}
         onOpenImportExport={onOpenImportExport}
         onOpenUserManagement={onOpenUserManagement}
+        onOpenFirebaseGuide={onOpenFirebaseGuide}
         onLogout={onLogout}
         onRefreshData={onRefreshData}
-        onOpenFirebaseGuide={onOpenFirebaseGuide}
         isSyncing={isSyncing}
+        standarHargaCount={standarHargaCount}
+        isOpenMobile={isMobileSidebarOpen}
+        onCloseMobile={() => setIsMobileSidebarOpen(false)}
       />
 
-      {/* Main Page Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {children}
-      </main>
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Top Header Navbar */}
+        <HeaderNavbar
+          currentUser={currentUser}
+          appUser={appUser}
+          isFirebaseConnected={isFirebaseConnected}
+          onOpenImportExport={onOpenImportExport}
+          onOpenUserManagement={onOpenUserManagement}
+          onLogout={onLogout}
+          onRefreshData={onRefreshData}
+          onOpenFirebaseGuide={onOpenFirebaseGuide}
+          onOpenMobileMenu={() => setIsMobileSidebarOpen(true)}
+          isSyncing={isSyncing}
+        />
 
-      {/* Footer */}
-      <footer className="border-t border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 py-6 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-700 dark:text-slate-300">
-              SIPKD - Sistem Informasi Anggaran & Rincian Sub-Kegiatan
-            </span>
-            <span>•</span>
-            <span>Metode Atomic Design & Firebase Firestore</span>
+        {/* Page Content */}
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+          {children}
+        </main>
+
+        {/* Footer */}
+        <footer className="border-t border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 py-5 text-xs text-slate-500">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">
+                SIPKD - Sistem Informasi Anggaran & Rincian Sub-Kegiatan
+              </span>
+              <span>•</span>
+              <span>TA 2027</span>
+            </div>
+            <div>
+              <span>Standar Satuan Harga Daerah (SSH • HSPK • ASB • SBU) Bakesbangpoldagri NTB</span>
+            </div>
           </div>
-          <div>
-            <span>Format Data Standar SIPD Kemendagri RI • Standar Satuan Harga (SSH)</span>
-          </div>
-        </div>
-      </footer>
+        </footer>
+      </div>
     </div>
   );
 };

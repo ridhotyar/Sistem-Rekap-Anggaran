@@ -54,7 +54,9 @@ export function normalizePath(fullPath: string): {
       extractedHash.startsWith('/') ||
       extractedHash.includes('sub') ||
       extractedHash.includes('dash') ||
-      extractedHash.includes('dasbor')
+      extractedHash.includes('dasbor') ||
+      extractedHash.includes('standar') ||
+      extractedHash.includes('ssh')
     ) {
       raw = extractedHash;
     }
@@ -104,6 +106,18 @@ export function normalizePath(fullPath: string): {
     lowerPath === '/home'
   ) {
     pathname = '/dashboard';
+  } else if (
+    lowerPath === '/standar-harga' ||
+    lowerPath === '/standar-harga/' ||
+    lowerPath === '/standar-harga-satuan' ||
+    lowerPath === '/standarhargasatuan' ||
+    lowerPath === '/standarhargakategori' ||
+    lowerPath === '/ssh' ||
+    lowerPath === '/hspk' ||
+    lowerPath === '/asb' ||
+    lowerPath === '/sbu'
+  ) {
+    pathname = '/standar-harga';
   }
 
   // Flexible regex to match sub-kegiatan in various URL formats:

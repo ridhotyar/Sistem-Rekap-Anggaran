@@ -21,7 +21,9 @@ import {
   getStoredUsers,
   addNewUser,
   deleteUser,
+  saveUsers,
 } from '../../services/authService';
+import { subscribeAppUsers } from '../../services/firebase';
 
 export interface UserManagementModalProps {
   isOpen: boolean;
@@ -46,6 +48,18 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [jabatan, setJabatan] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Subscribe to users ONLY when modal is actively opened by Admin
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const unsub = subscribeAppUsers((remoteUsers) => {
+      if (remoteUsers && remoteUsers.length > 0) {
+        setUsers(remoteUsers);
+        saveUsers(remoteUsers);
+      }
+    });
+    return () => unsub();
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -377,8 +391,9 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         <div className="font-bold text-slate-800 dark:text-slate-200">
                           {u.username}
                         </div>
-                        <div className="text-[10px] text-slate-500">
-                          pwd: {u.password}
+                        <div className="text-[10px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mt-0.5 font-sans">
+                          <Key className="w-2.5 h-2.5 shrink-0" />
+                          <span>•••••••• (Terenkripsi SHA-256)</span>
                         </div>
                       </td>
 

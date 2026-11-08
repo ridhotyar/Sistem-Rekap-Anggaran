@@ -26,7 +26,7 @@ import { SubKegiatanMetricsOverview } from '../organisms/SubKegiatanMetricsOverv
 import { AkunDistributionChart } from '../organisms/AkunDistributionChart';
 import { SubKegiatanRincianTable } from '../organisms/SubKegiatanRincianTable';
 import { RincianItemFormModal } from '../organisms/RincianItemFormModal';
-import { SubKegiatan, RincianBelanjaItem, KeteranganSubBl } from '../../types/budget';
+import { SubKegiatan, RincianBelanjaItem, KeteranganSubBl, StandarHargaItem } from '../../types/budget';
 import { INITIAL_KETERANGAN_LIST } from '../../data/initialBudgetData';
 import { BASE_SUB_KEGIATAN_LIST } from '../../data/initialSubKegiatanData';
 import { AppUser } from '../../types/auth';
@@ -40,6 +40,7 @@ export interface SubKegiatanDetailPageProps {
   onDeleteSubKegiatan?: (subKegiatan: SubKegiatan) => void;
   currentUser?: AppUser | null;
   isAdmin?: boolean;
+  standarHargaList?: StandarHargaItem[];
 }
 
 export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
@@ -51,6 +52,7 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
   onDeleteSubKegiatan,
   currentUser,
   isAdmin = currentUser?.role === 'admin',
+  standarHargaList,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<RincianBelanjaItem | null>(null);
@@ -118,18 +120,18 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
   };
 
   const handleApproveProposal = async (item: RincianBelanjaItem) => {
-    if (!window.confirm(`Setujui usulan penyesuaian staf untuk "${item.spek}" menjadi data dasar?`)) return;
+    if (!window.confirm(`Setujui usulan penyesuaian untuk "${item.spek}"?`)) return;
+    const baseTotal = item.base_total_harga !== undefined ? item.base_total_harga : item.total_harga;
+    const baseHarga = item.base_harga_satuan !== undefined ? item.base_harga_satuan : item.harga_satuan;
+    const baseKoef = item.base_koefisien !== undefined ? item.base_koefisien : item.koefisien;
+    const newTotal = item.user_total_harga !== undefined ? item.user_total_harga : item.total_harga;
+
     const approvedItem: RincianBelanjaItem = {
       ...item,
-      spek: item.user_spek || item.spek,
-      koefisien: item.user_koefisien || item.koefisien,
-      harga_satuan: item.user_harga_satuan !== undefined ? item.user_harga_satuan : item.harga_satuan,
-      total_harga: item.user_total_harga !== undefined ? item.user_total_harga : item.total_harga,
-      user_spek: undefined,
-      user_koefisien: undefined,
-      user_harga_satuan: undefined,
-      user_total_harga: undefined,
-      user_catatan: undefined,
+      base_total_harga: baseTotal,
+      base_harga_satuan: baseHarga,
+      base_koefisien: baseKoef,
+      user_total_harga: newTotal,
       status_persetujuan: 'disetujui',
       updated_at: new Date().toISOString(),
     };
@@ -138,8 +140,18 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
 
   const handleResetProposal = async (item: RincianBelanjaItem) => {
     if (!window.confirm(`Tolak/reset usulan penyesuaian untuk "${item.spek}" kembali ke data dasar JSON?`)) return;
+    const baseTotal = item.base_total_harga !== undefined ? item.base_total_harga : item.total_harga;
+    const baseHarga = item.base_harga_satuan !== undefined ? item.base_harga_satuan : item.harga_satuan;
+    const baseKoef = item.base_koefisien !== undefined ? item.base_koefisien : item.koefisien;
+
     const resetItem: RincianBelanjaItem = {
       ...item,
+      total_harga: baseTotal,
+      harga_satuan: baseHarga,
+      koefisien: baseKoef,
+      base_total_harga: baseTotal,
+      base_harga_satuan: baseHarga,
+      base_koefisien: baseKoef,
       user_spek: undefined,
       user_koefisien: undefined,
       user_harga_satuan: undefined,
@@ -534,6 +546,7 @@ export const SubKegiatanDetailPage: React.FC<SubKegiatanDetailPageProps> = ({
         availablePackages={keteranganList.map((k) => k.keterangan)}
         allItems={items}
         defaultKetId={selectedKetId !== 'all' ? selectedKetId : undefined}
+        standarHargaList={standarHargaList}
       />
     </div>
   );

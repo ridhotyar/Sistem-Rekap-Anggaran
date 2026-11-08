@@ -13,7 +13,7 @@ export const INITIAL_KETERANGAN_SUB_BL: KeteranganSubBl = {
   id_daerah: 407,
   id_unit: 82,
   ket_bl_teks: "Rapat Koordinasi Penyusunan RAD PE dengan Kab./Kota Provinsi NTB Tahun 2027",
-  total_pagu: 54860000,
+  total_pagu: 52000000,
   rincian_count: 12,
   created_user: 0,
   created_at: "Sun, 25 Oct 2026 16:43:35 GMT",
@@ -87,7 +87,6 @@ export const INITIAL_KETERANGAN_SUB_BL_2: KeteranganSubBl = {
 
 export const INITIAL_KETERANGAN_LIST: KeteranganSubBl[] = [
   INITIAL_KETERANGAN_SUB_BL,
-  INITIAL_KETERANGAN_SUB_BL_2,
 ];
 
 export const SUBS_SUB_BL_NAMES: Record<number, string> = {
@@ -493,7 +492,6 @@ export const RINCIAN_ITEMS_KET_2: RincianBelanjaItem[] = [
  */
 export const INITIAL_USER_RINCIAN_DATA: RincianBelanjaItem[] = [
   ...RINCIAN_ITEMS_KET_1,
-  ...RINCIAN_ITEMS_KET_2,
 ];
 
 /**

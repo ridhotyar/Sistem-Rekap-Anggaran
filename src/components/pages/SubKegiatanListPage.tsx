@@ -2,10 +2,11 @@ import React from 'react';
 import { Layers, Info, Calendar, MapPin, Building, Plus } from 'lucide-react';
 import { SubKegiatanSummaryTable } from '../organisms/SubKegiatanSummaryTable';
 import { SubKegiatanMetricsOverview } from '../organisms/SubKegiatanMetricsOverview';
-import { SubKegiatan } from '../../types/budget';
+import { SubKegiatan, RincianBelanjaItem } from '../../types/budget';
 
 export interface SubKegiatanListPageProps {
   subKegiatans: SubKegiatan[];
+  rincianItems?: RincianBelanjaItem[];
   onSelectSubKegiatan: (subKegiatan: SubKegiatan) => void;
   onAddNewSubKegiatan?: () => void;
   onDeleteSubKegiatan?: (subKegiatan: SubKegiatan) => void;
@@ -14,6 +15,7 @@ export interface SubKegiatanListPageProps {
 
 export const SubKegiatanListPage: React.FC<SubKegiatanListPageProps> = ({
   subKegiatans,
+  rincianItems = [],
   onSelectSubKegiatan,
   onAddNewSubKegiatan,
   onDeleteSubKegiatan,
@@ -58,41 +60,26 @@ export const SubKegiatanListPage: React.FC<SubKegiatanListPageProps> = ({
 
       {/* Overview: Total Anggaran SKPD & Nama Program dan Anggarannya */}
       <SubKegiatanMetricsOverview
-        items={[]}
+        items={rincianItems}
         allSubKegiatans={subKegiatans}
         isDetailedView={false}
+        selectedProgram={selectedProgram}
         onSelectProgram={(prog) => setSelectedProgram(prog)}
       />
 
-      {/* Educational info badge 
-      <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 flex items-start justify-between gap-3 text-xs text-emerald-900 dark:text-emerald-200">
-        <div className="flex items-start gap-2.5">
-          <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
-          <div className="leading-relaxed">
-            <strong>Basis Data Anggaran Sub-Kegiatan Terkoneksi:</strong> Menampilkan daftar lengkap <strong>{subKegiatans.length} Sub-Kegiatan</strong> Bakesbangpoldagri Provinsi NTB Tahun Anggaran 2027. Sub-kegiatan yang telah memiliki rincian belanja ditandai secara visual dan dapat dibuka untuk melihat rincian item.
-          </div>
-        </div>
-        <span className="hidden sm:inline-block px-2.5 py-1 rounded bg-emerald-200/70 dark:bg-emerald-900/60 font-semibold text-[11px] text-emerald-900 dark:text-emerald-200 shrink-0">
-          {subKegiatans.length} Sub-Kegiatan Terdaftar
-        </span>
-      </div>
-      <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/80 flex items-start gap-3 text-xs text-slate-700 dark:text-slate-300">
-        <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
-        <div className="leading-relaxed">
-          <strong>Struktur Hierarki Anggaran:</strong> Urusan Pemerintah &rarr; Program &rarr; Kegiatan &rarr; <strong>Sub-Kegiatan</strong> &rarr; <strong>Rincian Belanja (Rekening Akun & SSH)</strong>. Klik kartu program di atas untuk langsung memfilter daftar sub-kegiatan di bawah.
-        </div>
-      </div>*/}
-
       {/* Summary Table */}
-      <SubKegiatanSummaryTable
-        subKegiatans={subKegiatans}
-        onSelectSubKegiatan={onSelectSubKegiatan}
-        onAddNewSubKegiatan={onAddNewSubKegiatan}
-        onDeleteSubKegiatan={onDeleteSubKegiatan}
-        externalSelectedProgram={selectedProgram}
-        onProgramChange={(prog) => setSelectedProgram(prog)}
-        isAdmin={isAdmin}
-      />
+      <div id="daftar-program" className="scroll-mt-24">
+        <SubKegiatanSummaryTable
+          subKegiatans={subKegiatans}
+          rincianItems={rincianItems}
+          onSelectSubKegiatan={onSelectSubKegiatan}
+          onAddNewSubKegiatan={onAddNewSubKegiatan}
+          onDeleteSubKegiatan={onDeleteSubKegiatan}
+          externalSelectedProgram={selectedProgram}
+          onProgramChange={(prog) => setSelectedProgram(prog)}
+          isAdmin={isAdmin}
+        />
+      </div>
     </div>
   );
 };

@@ -3,7 +3,9 @@ export type UserRole = 'admin' | 'user';
 export interface AppUser {
   id: string;
   username: string;
-  password: string;
+  password?: string; // Optional legacy field; never exposed in sanitized responses
+  passwordHash?: string; // Encrypted/hashed password (SHA-256 + salt)
+  salt?: string; // Unique cryptographic salt
   nama: string;
   role: UserRole;
   bidang: string;
@@ -20,7 +22,8 @@ export const DEFAULT_USERS: AppUser[] = [
   {
     id: 'user-admin-01',
     username: 'userutama',
-    password: 'Kesbang123#',
+    passwordHash: 'd67d37b785727d99c54bd77bb6b2e535a3460a5595739a0daf33268ef16c9bdc',
+    salt: 'salt_userutama_ntb2027',
     nama: 'Administrator Bakesbangpoldagri',
     role: 'admin',
     bidang: 'Sekretariat / Sub Bagian Perencanaan',
@@ -30,7 +33,8 @@ export const DEFAULT_USERS: AppUser[] = [
   {
     id: 'user-operator-01',
     username: 'operator',
-    password: 'operator123',
+    passwordHash: '055f5648fc0288a9032e67788662ccea37fe0273eed65aefdef5dc283765843d',
+    salt: 'salt_operator_ntb2027',
     nama: 'Staf Perencana Wasnas',
     role: 'user',
     bidang: 'Bidang Kewaspadaan Nasional & Penanganan Konflik',

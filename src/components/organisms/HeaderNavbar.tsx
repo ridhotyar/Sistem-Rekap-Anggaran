@@ -10,6 +10,8 @@ import {
   UserCheck,
   ShieldCheck,
   Building,
+  Database,
+  Menu,
 } from 'lucide-react';
 import { Button } from '../atoms/Button';
 import { Badge } from '../atoms/Badge';
@@ -26,6 +28,7 @@ export interface HeaderNavbarProps {
   onLogout?: () => void;
   onRefreshData?: () => void;
   onOpenFirebaseGuide?: () => void;
+  onOpenMobileMenu?: () => void;
   isSyncing?: boolean;
 }
 
@@ -38,42 +41,57 @@ export const HeaderNavbar: React.FC<HeaderNavbarProps> = ({
   onLogout,
   onRefreshData,
   onOpenFirebaseGuide,
+  onOpenMobileMenu,
   isSyncing = false,
 }) => {
   const isAdmin = appUser?.role === 'admin';
 
   return (
-    <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
+      <div className="w-full px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-4">
-          {/* Logo & Brand linking to /dashboard */}
-          <Link
-            to="/dashboard"
-            className="flex items-center gap-3 hover:opacity-90 transition-opacity"
-            title="Ke Dashboard Utama"
-          >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-700 via-teal-600 to-emerald-500 text-white flex items-center justify-center shadow-sm shadow-emerald-900/10 shrink-0">
-              <Landmark className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">
-                  SIPKD-SIPD
-                </span>
-                <Badge variant="primary" size="xs">
-                  NTB 2027
-                </Badge>
+          {/* Left: Mobile hamburger & breadcrumb / brand */}
+          <div className="flex items-center gap-3">
+            {onOpenMobileMenu && (
+              <button
+                type="button"
+                onClick={onOpenMobileMenu}
+                className="lg:hidden p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Buka Menu Navigasi"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+            )}
+
+            {/* Mobile-only logo */}
+            <Link
+              to="/dashboard"
+              className="lg:hidden flex items-center gap-2 hover:opacity-90 transition-opacity"
+            >
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-700 via-teal-600 to-emerald-500 text-white flex items-center justify-center shadow-xs shrink-0">
+                <Landmark className="w-4 h-4" />
               </div>
-              <p className="hidden md:block text-[11px] text-slate-500 font-medium">
-                Bakesbangpoldagri Provinsi Nusa Tenggara Barat
-              </p>
+              <span className="font-extrabold text-sm text-slate-900 dark:text-white">
+                SIPD NTB
+              </span>
+            </Link>
+
+            {/* Desktop Context Label */}
+            <div className="hidden lg:flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                Pemerintah Provinsi Nusa Tenggara Barat
+              </span>
+              <span className="text-slate-300 dark:text-slate-700">•</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Badan Kesatuan Bangsa dan Politik Dalam Negeri
+              </span>
             </div>
-          </Link>
+          </div>
 
           {/* Right Actions & User info */}
           <div className="flex items-center gap-2 sm:gap-2.5">
             {/* Fiscal Year */}
-            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold">
               <Calendar className="w-3.5 h-3.5 text-emerald-600" />
               <span>TA 2027</span>
             </div>
@@ -98,8 +116,7 @@ export const HeaderNavbar: React.FC<HeaderNavbarProps> = ({
                 variant="outline"
                 size="xs"
                 onClick={onOpenImportExport}
-                icon={<Upload className="w-3.5 h-3.5 text-emerald-600" />}
-                className="border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 font-semibold"
+                icon={<Upload className="w-3.5 h-3.5 text-slate-600" />}
                 title="Import data SIPD melalui JSON (Khusus Admin)"
               >
                 <span className="hidden sm:inline">Import JSON SIPD</span>
