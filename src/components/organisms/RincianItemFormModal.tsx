@@ -15,6 +15,8 @@ import {
   Trash2,
   Calculator,
   Package,
+  Loader2,
+  Zap,
 } from 'lucide-react';
 import { Button } from '../atoms/Button';
 import { Badge } from '../atoms/Badge';
@@ -129,17 +131,19 @@ function parseKoefisienStringToFactors(str?: string): KoefisienFactor[] {
   return parts.map((part, idx) => {
     const match = part.match(/^(\d+(?:\.\d+)?)\s*(.*)$/);
     if (match) {
+      const parsed = parseFloat(match[1]);
       return {
         id: `factor-${idx + 1}-${Date.now()}`,
-        angka: parseFloat(match[1]) || 1,
+        angka: isNaN(parsed) ? 1 : parsed,
         satuan: match[2]?.trim() || '',
       };
     }
-    const num = parseFloat(part.match(/\d+(?:\.\d+)?/)?.[0] || '1');
+    const matchDigits = part.match(/\d+(?:\.\d+)?/);
+    const num = matchDigits ? parseFloat(matchDigits[0]) : 1;
     const unit = part.replace(/\d+(?:\.\d+)?/, '').trim();
     return {
       id: `factor-${idx + 1}-${Date.now()}`,
-      angka: num || 1,
+      angka: isNaN(num) ? 1 : num,
       satuan: unit || 'Paket',
     };
   });
@@ -296,6 +300,39 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
     return result;
   }, [standarHargaCatalog, selectedShCategory, sshSearchQuery]);
 
+  // Lazy Load State: Tampilkan 15 data pertama, lalu muat 15 berikutnya saat user scroll ke data paling bawah
+  const DROPDOWN_PAGE_SIZE = 15;
+  const [dropdownVisibleCount, setDropdownVisibleCount] = useState<number>(DROPDOWN_PAGE_SIZE);
+  const [isLoadingMoreSsh, setIsLoadingMoreSsh] = useState<boolean>(false);
+  const sshListScrollRef = useRef<HTMLDivElement>(null);
+
+  // Reset jumlah tampilan ke 15 pertama ketika kategori, kata kunci pencarian berubah, atau dropdown dibuka
+  useEffect(() => {
+    setDropdownVisibleCount(DROPDOWN_PAGE_SIZE);
+    if (sshListScrollRef.current) {
+      sshListScrollRef.current.scrollTop = 0;
+    }
+  }, [selectedShCategory, sshSearchQuery, isSshDropdownOpen]);
+
+  // Potongan data standar harga yang tampil sesuai lazy load (15 data pertama, lalu bertambah 15 setiap scroll)
+  const displayedSshOptions = useMemo(() => {
+    return filteredSshOptions.slice(0, dropdownVisibleCount);
+  }, [filteredSshOptions, dropdownVisibleCount]);
+
+  // Handle scroll: saat user sudah scroll sampai data 15 paling bawah, front-end request 15 data berikutnya
+  const handleSshScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollTop + clientHeight >= scrollHeight - 35) {
+      if (!isLoadingMoreSsh && dropdownVisibleCount < filteredSshOptions.length) {
+        setIsLoadingMoreSsh(true);
+        setTimeout(() => {
+          setDropdownVisibleCount((prev) => Math.min(prev + DROPDOWN_PAGE_SIZE, filteredSshOptions.length));
+          setIsLoadingMoreSsh(false);
+        }, 150);
+      }
+    }
+  };
+
   // Available packages for this sub-kegiatan
   const packageOptions = useMemo(() => {
     const list: Array<{ id_ket_sub_bl: number; ket_bl_teks: string; rincian_count?: number }> = [];
@@ -407,18 +444,22 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
 
   // Recalculate total multiplication whenever factors or unit price change
   // Formula: Multiplies each factor's number, then multiplies by unit price:
-  // e.g. 1 paket * 1 hari * 1 kegiatan * 50000 = 50000
+  // e.g. 1 paket * 1 hari * 1 kegiatan * 50000 = 50000; jika salah satu faktor bernilai 0, maka total volume menjadi 0
   const totalVolumeMultiplier = useMemo(() => {
-    if (koefisienFactors.length === 0) return 1;
+    if (koefisienFactors.length === 0) return 0;
     return koefisienFactors.reduce((acc, f) => {
       const num = Number(f.angka);
-      return acc * (num > 0 ? num : 1);
+      const safeNum = isNaN(num) ? 0 : Math.max(0, num);
+      return acc * safeNum;
     }, 1);
   }, [koefisienFactors]);
 
   const formattedKoefisienText = useMemo(() => {
     return koefisienFactors
-      .map((f) => `${f.angka || 1} ${f.satuan || ''}`.trim())
+      .map((f) => {
+        const val = f.angka !== undefined && f.angka !== null && !isNaN(Number(f.angka)) ? f.angka : 0;
+        return `${val} ${f.satuan || ''}`.trim();
+      })
       .filter(Boolean)
       .join(' x ');
   }, [koefisienFactors]);
@@ -496,8 +537,12 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
     setKoefisienFactors((prev) => {
       const copy = [...prev];
       if (field === 'angka') {
-        const num = parseFloat(String(value));
-        copy[index] = { ...copy[index], angka: isNaN(num) ? 1 : num };
+        if (value === '' || value === null || value === undefined) {
+          copy[index] = { ...copy[index], angka: '' as unknown as number };
+        } else {
+          const num = parseFloat(String(value));
+          copy[index] = { ...copy[index], angka: isNaN(num) ? 0 : Math.max(0, num) };
+        }
       } else {
         copy[index] = { ...copy[index], satuan: String(value) };
       }
@@ -538,17 +583,17 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
         setError('Uraian spesifikasi usulan tidak boleh kosong.');
         return;
       }
-      if (!userTotalHarga || userTotalHarga <= 0) {
-        setError('Total harga usulan harus lebih besar dari 0.');
+      if (userTotalHarga < 0) {
+        setError('Total harga usulan tidak boleh bernilai negatif.');
         return;
       }
     } else {
       if (!formData.spek?.trim() && !userSpek.trim()) {
-        setError('Uraian spesifikasi base tidak boleh kosong.');
+        setError('Uraian spesifikasi tidak boleh kosong.');
         return;
       }
-      if (!userTotalHarga || userTotalHarga <= 0) {
-        setError('Total harga base harus lebih besar dari 0.');
+      if (userTotalHarga < 0) {
+        setError('Total harga tidak boleh bernilai negatif.');
         return;
       }
     }
@@ -924,8 +969,33 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
                   )}
                 </div>
 
-                {/* 3. Items List */}
-                <div className="overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 max-h-64">
+                {/* 2.5 Lazy Load Status Sub-bar */}
+                <div className="px-3 py-1.5 bg-slate-50/90 dark:bg-slate-800/70 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px] text-slate-500">
+                  <div className="flex items-center gap-1.5 font-medium">
+                    <Zap className="w-3 h-3 text-indigo-500 shrink-0" />
+                    <span>
+                      Lazy Load: Menampilkan{' '}
+                      <strong className="text-slate-800 dark:text-slate-200">
+                        {Math.min(displayedSshOptions.length, filteredSshOptions.length)}
+                      </strong>{' '}
+                      dari{' '}
+                      <strong className="text-slate-800 dark:text-slate-200">
+                        {filteredSshOptions.length}
+                      </strong>{' '}
+                      data
+                    </span>
+                  </div>
+                  <span className="text-[9px] text-slate-400 font-mono">
+                    15 item/scroll
+                  </span>
+                </div>
+
+                {/* 3. Items List with Lazy Load on Scroll */}
+                <div
+                  ref={sshListScrollRef}
+                  onScroll={handleSshScroll}
+                  className="overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 max-h-64 scroll-smooth"
+                >
                   {filteredSshOptions.length === 0 ? (
                     <div className="p-6 text-center text-xs text-slate-500 space-y-1">
                       <p className="font-semibold text-slate-700 dark:text-slate-300">
@@ -936,62 +1006,100 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
                       </p>
                     </div>
                   ) : (
-                    filteredSshOptions.map((opt) => {
-                      const isSelected =
-                        formData.nama_standar_harga === opt.nama_standar_harga &&
-                        (!formData.kode_standar_harga || formData.kode_standar_harga === opt.kode_standar_harga);
-                      const kat = opt.kategori || 'SSH';
-                      const badgeClasses =
-                        kat === 'SSH'
-                          ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/60 dark:text-blue-300'
-                          : kat === 'HSPK'
-                          ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/60 dark:text-emerald-300'
-                          : kat === 'ASB'
-                          ? 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/60 dark:text-purple-300'
-                          : 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/60 dark:text-amber-300';
+                    <>
+                      {displayedSshOptions.map((opt) => {
+                        const isSelected =
+                          formData.nama_standar_harga === opt.nama_standar_harga &&
+                          (!formData.kode_standar_harga || formData.kode_standar_harga === opt.kode_standar_harga);
+                        const kat = opt.kategori || 'SSH';
+                        const badgeClasses =
+                          kat === 'SSH'
+                            ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/60 dark:text-blue-300'
+                            : kat === 'HSPK'
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/60 dark:text-emerald-300'
+                            : kat === 'ASB'
+                            ? 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/60 dark:text-purple-300'
+                            : 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/60 dark:text-amber-300';
 
-                      return (
-                        <div
-                          key={`${opt.kategori || 'SSH'}-${opt.id_standar_harga}-${opt.kode_standar_harga}-${opt.nama_standar_harga}`}
-                          onClick={() => handleSelectStandarHarga(opt)}
-                          className={`p-3 text-xs cursor-pointer transition-colors flex items-start justify-between gap-3 ${
-                            isSelected
-                              ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-100 font-semibold'
-                              : 'hover:bg-slate-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200'
-                          }`}
-                        >
-                          <div className="space-y-1 min-w-0 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border uppercase shrink-0 ${badgeClasses}`}>
-                                {kat}
-                              </span>
-                              <span className="font-bold text-slate-900 dark:text-white">
-                                {opt.nama_standar_harga}
-                              </span>
-                              {isSelected && <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
+                        return (
+                          <div
+                            key={`${opt.kategori || 'SSH'}-${opt.id_standar_harga}-${opt.kode_standar_harga}-${opt.nama_standar_harga}`}
+                            onClick={() => handleSelectStandarHarga(opt)}
+                            className={`p-3 text-xs cursor-pointer transition-colors flex items-start justify-between gap-3 ${
+                              isSelected
+                                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-100 font-semibold'
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200'
+                            }`}
+                          >
+                            <div className="space-y-1 min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border uppercase shrink-0 ${badgeClasses}`}>
+                                  {kat}
+                                </span>
+                                <span className="font-bold text-slate-900 dark:text-white">
+                                  {opt.nama_standar_harga}
+                                </span>
+                                {isSelected && <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
+                              </div>
+                              {opt.spek_default && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                                  <span className="font-semibold text-slate-600 dark:text-slate-300">Spek:</span> {opt.spek_default}
+                                </p>
+                              )}
+                              <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
+                                <span>Kode: {opt.kode_standar_harga}</span>
+                                <span>•</span>
+                                <span className="truncate">{opt.nama_akun}</span>
+                              </div>
                             </div>
-                            {opt.spek_default && (
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">
-                                <span className="font-semibold text-slate-600 dark:text-slate-300">Spek:</span> {opt.spek_default}
-                              </p>
-                            )}
-                            <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
-                              <span>Kode: {opt.kode_standar_harga}</span>
-                              <span>•</span>
-                              <span className="truncate">{opt.nama_akun}</span>
+                            <div className="text-right shrink-0 pl-2">
+                              <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400 block text-xs">
+                                Rp {opt.harga_satuan.toLocaleString('id-ID')}
+                              </span>
+                              <span className="text-[10px] text-slate-400 block">
+                                / {opt.satuan_default || 'Paket'}
+                              </span>
                             </div>
                           </div>
-                          <div className="text-right shrink-0 pl-2">
-                            <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400 block text-xs">
-                              Rp {opt.harga_satuan.toLocaleString('id-ID')}
-                            </span>
-                            <span className="text-[10px] text-slate-400 block">
-                              / {opt.satuan_default || 'Paket'}
-                            </span>
-                          </div>
+                        );
+                      })}
+
+                      {/* Lazy Load Spinner when requesting next 15 items */}
+                      {isLoadingMoreSsh && (
+                        <div className="p-3 text-center text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50/70 dark:bg-emerald-950/50 flex items-center justify-center gap-2 font-semibold">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                          <span>Memuat 15 data berikutnya (Lazy Load)...</span>
                         </div>
-                      );
-                    })
+                      )}
+
+                      {/* Infinite Scroll trigger / Load next button if not at end */}
+                      {!isLoadingMoreSsh && displayedSshOptions.length < filteredSshOptions.length && (
+                        <div
+                          onClick={() => {
+                            setIsLoadingMoreSsh(true);
+                            setTimeout(() => {
+                              setDropdownVisibleCount((prev) => Math.min(prev + DROPDOWN_PAGE_SIZE, filteredSshOptions.length));
+                              setIsLoadingMoreSsh(false);
+                            }, 120);
+                          }}
+                          className="p-2.5 text-center text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 bg-slate-50 dark:bg-slate-800/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer border-t border-slate-100 dark:border-slate-800 transition-colors flex items-center justify-center gap-1.5"
+                        >
+                          <span>Scroll ke bawah atau klik untuk memuat 15 data berikutnya</span>
+                          <span className="font-mono text-[10px] opacity-75">
+                            ({displayedSshOptions.length}/{filteredSshOptions.length})
+                          </span>
+                        </div>
+                      )}
+
+                      {/* End of list indicator */}
+                      {!isLoadingMoreSsh &&
+                        displayedSshOptions.length >= filteredSshOptions.length &&
+                        filteredSshOptions.length > DROPDOWN_PAGE_SIZE && (
+                          <div className="p-2 text-center text-[10px] text-slate-400 bg-slate-50/40 dark:bg-slate-850/50 border-t border-slate-100 dark:border-slate-800 font-medium">
+                            Seluruh {filteredSshOptions.length} standar harga telah ditampilkan
+                          </div>
+                        )}
+                    </>
                   )}
                 </div>
               </div>
@@ -1086,14 +1194,14 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
                   <div className="w-24 shrink-0">
                     <input
                       type="number"
-                      min={1}
+                      min={0}
                       step="any"
                       value={factor.angka}
                       onChange={(e) =>
                         handleUpdateKoefisienFactor(idx, 'angka', e.target.value)
                       }
                       className="w-full text-xs p-2 rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-center focus:ring-1 focus:ring-emerald-500"
-                      placeholder="Angka"
+                      placeholder="0"
                       required
                     />
                   </div>
@@ -1158,7 +1266,7 @@ export const RincianItemFormModal: React.FC<RincianItemFormModalProps> = ({
                 </span>
               </div>
               <div className="text-[11px] text-emerald-700 dark:text-emerald-300/80 font-mono">
-                Kalkulasi: {koefisienFactors.map((f) => f.angka || 1).join(' × ')} = {totalVolumeMultiplier}{' '}
+                Kalkulasi: {koefisienFactors.map((f) => (f.angka !== undefined && !isNaN(Number(f.angka)) ? f.angka : 0)).join(' × ')} = {totalVolumeMultiplier}{' '}
                 × Rp {(userHargaSatuan || 0).toLocaleString('id-ID')} ={' '}
                 <strong className="text-emerald-900 dark:text-white">
                   Rp {(userTotalHarga || 0).toLocaleString('id-ID')}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Search,
   FileSpreadsheet,
@@ -23,6 +23,12 @@ import {
   X,
   HelpCircle,
   ExternalLink,
+  Cloud,
+  CloudUpload,
+  RefreshCw,
+  Loader2,
+  Zap,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '../atoms/Button';
 import { Badge } from '../atoms/Badge';
@@ -36,12 +42,24 @@ import {
   downloadStandarHargaTemplate,
   resetStandarHargaToDefault,
   saveStoredStandarHarga,
+  mergeStandarHargaLists,
+  fetchStandarHargaPage,
+  saveSingleStandarHarga,
+  deleteSingleStandarHarga,
+  getLoadedStandarHargaList,
 } from '../../services/standarHargaService';
+import {
+  saveStandarHargaToFirestore,
+  loadStandarHargaFromFirestore,
+  getFirestoreQuotaStatus,
+  subscribeQuotaStatus,
+  type FirestoreQuotaStatus,
+} from '../../services/firebase';
 import { useRouter } from '../../services/router';
 
 export interface StandarHargaPageProps {
-  standarHargaList: StandarHargaItem[];
-  onUpdateStandarHargaList: (newList: StandarHargaItem[]) => void;
+  standarHargaList?: StandarHargaItem[];
+  onUpdateStandarHargaList?: (newList: StandarHargaItem[]) => void;
   isAdmin?: boolean;
 }
 
@@ -106,14 +124,46 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(15);
 
+  // Lazy Load State: Hanya menampung N data sesuai tampilan front-end (misal: 15 item)
+  const [displayedItems, setDisplayedItems] = useState<StandarHargaItem[]>([]);
+  const [totalItems, setTotalItems] = useState<number>(0);
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [isLoadingPage, setIsLoadingPage] = useState<boolean>(true);
+  const [categoryCounts, setCategoryCounts] = useState<{
+    ALL: number;
+    SSH: number;
+    HSPK: number;
+    ASB: number;
+    SBU: number;
+  }>({
+    ALL: 0,
+    SSH: 0,
+    HSPK: 0,
+    ASB: 0,
+    SBU: 0,
+  });
+
+  // Quota status state
+  const [quotaStatus, setQuotaStatus] = useState<FirestoreQuotaStatus>(() => getFirestoreQuotaStatus());
+
+  useEffect(() => {
+    return subscribeQuotaStatus((status) => {
+      setQuotaStatus(status);
+    });
+  }, []);
+
   // Import Excel State
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importTargetCategory, setImportTargetCategory] = useState<StandarHargaCategory | 'AUTO'>('AUTO');
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
   const [parsedPreviewItems, setParsedPreviewItems] = useState<StandarHargaItem[] | null>(null);
   const [importFileName, setImportFileName] = useState('');
+  const [selectedRawFile, setSelectedRawFile] = useState<File | null>(null);
   const [importErrorMessage, setImportErrorMessage] = useState<string | null>(null);
   const [importSuccessMessage, setImportSuccessMessage] = useState<string | null>(null);
+  const [isSavingFirebase, setIsSavingFirebase] = useState(false);
+  const [isSyncingFirebase, setIsSyncingFirebase] = useState(false);
+  const [syncStatusMessage, setSyncStatusMessage] = useState<string | null>(null);
 
   // Add / Edit Manual State
   const [editingItem, setEditingItem] = useState<StandarHargaItem | null>(null);
@@ -130,55 +180,66 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Counts per category
-  const categoryCounts = useMemo(() => {
-    const counts: Record<StandarHargaCategory | 'ALL', number> = {
-      ALL: standarHargaList.length,
-      SSH: 0,
-      HSPK: 0,
-      ASB: 0,
-      SBU: 0,
-    };
-    standarHargaList.forEach((it) => {
-      if (counts[it.kategori] !== undefined) {
-        counts[it.kategori] += 1;
+  /**
+   * Lazy Load: Mengirimkan request ke database HANYA sesuai jumlah data yang tampil di front end (misal: 15 item).
+   * Database tidak mengirimkan semua data sekaligus, melainkan hanya 15 data yang diminta.
+   */
+  const fetchLazyData = useCallback(async (
+    page: number,
+    pageSize: number,
+    category: StandarHargaCategory | 'ALL',
+    search: string
+  ) => {
+    setIsLoadingPage(true);
+    try {
+      const result = await fetchStandarHargaPage({
+        page,
+        pageSize,
+        category,
+        searchQuery: search,
+      });
+      // Database mengembalikan HANYA 15 data yang tampil pada layar
+      setDisplayedItems(result.items);
+      setTotalItems(result.totalItems);
+      setTotalPages(result.totalPages);
+      setCurrentPage(result.currentPage);
+      setCategoryCounts(result.categoryCounts);
+    } catch (err) {
+      console.warn('Gagal memuat lazy load halaman standar harga:', err);
+    } finally {
+      setIsLoadingPage(false);
+    }
+  }, []);
+
+  // Jalankan lazy load query setiap kali halaman, jumlah per halaman, kategori, atau pencarian berubah
+  useEffect(() => {
+    fetchLazyData(currentPage, itemsPerPage, selectedCategory, searchQuery);
+  }, [currentPage, itemsPerPage, selectedCategory, searchQuery, fetchLazyData]);
+
+  // Handle category selection change in import modal
+  const handleSelectImportCategory = async (cat: StandarHargaCategory | 'AUTO') => {
+    setImportTargetCategory(cat);
+    if (selectedRawFile) {
+      setImportErrorMessage(null);
+      const targetCat = cat === 'AUTO' ? undefined : cat;
+      const result = await parseExcelFile(selectedRawFile, targetCat);
+      if (result.success && result.importedItems.length > 0) {
+        setParsedPreviewItems(result.importedItems);
+      } else {
+        setParsedPreviewItems(null);
+        setImportErrorMessage(
+          result.errors[0] || 'Tidak ada baris data standar harga yang valid ditemukan pada file Excel.'
+        );
       }
-    });
-    return counts;
-  }, [standarHargaList]);
-
-  // Filtered List based on category tab & search
-  const filteredItems = useMemo(() => {
-    return standarHargaList.filter((it) => {
-      const matchCat = selectedCategory === 'ALL' || it.kategori === selectedCategory;
-      if (!matchCat) return false;
-
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      return (
-        it.nama_standar_harga.toLowerCase().includes(q) ||
-        it.spek.toLowerCase().includes(q) ||
-        it.kode_standar_harga.toLowerCase().includes(q) ||
-        (it.satuan && it.satuan.toLowerCase().includes(q)) ||
-        (it.kode_akun && it.kode_akun.toLowerCase().includes(q)) ||
-        (it.nama_akun && it.nama_akun.toLowerCase().includes(q)) ||
-        (it.kelompok_standar_harga && it.kelompok_standar_harga.toLowerCase().includes(q))
-      );
-    });
-  }, [standarHargaList, selectedCategory, searchQuery]);
-
-  // Pagination calculation
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage));
-  const paginatedItems = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredItems.slice(start, start + itemsPerPage);
-  }, [filteredItems, currentPage, itemsPerPage]);
+    }
+  };
 
   // Handle Excel File Selection
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setSelectedRawFile(file);
     setImportFileName(file.name);
     setImportErrorMessage(null);
     setImportSuccessMessage(null);
@@ -196,29 +257,75 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
     }
   };
 
-  // Confirm Excel Import
-  const handleConfirmImport = () => {
+  // Confirm Excel Import with direct persistence to database and Firestore
+  const handleConfirmImport = async () => {
     if (!parsedPreviewItems || parsedPreviewItems.length === 0) return;
 
-    let updatedList: StandarHargaItem[];
-    if (importMode === 'replace') {
-      updatedList = parsedPreviewItems;
-    } else {
-      const existingMap = new Map(standarHargaList.map((i) => [i.kode_standar_harga.toLowerCase(), i]));
-      parsedPreviewItems.forEach((newItem) => {
-        existingMap.set(newItem.kode_standar_harga.toLowerCase(), newItem);
-      });
-      updatedList = Array.from(existingMap.values());
-    }
+    setIsSavingFirebase(true);
+    setImportErrorMessage(null);
+    setImportSuccessMessage('Menyimpan ke basis data dan menyinkronkan data...');
 
+    const currentAll = await getLoadedStandarHargaList();
+    const updatedList = mergeStandarHargaLists(
+      currentAll,
+      parsedPreviewItems,
+      importTargetCategory,
+      importMode
+    );
+
+    // 1. Simpan ke IndexedDB lokal dan perbarui cache
     saveStoredStandarHarga(updatedList);
-    onUpdateStandarHargaList(updatedList);
-    setImportSuccessMessage(`Berhasil mengimpor ${parsedPreviewItems.length} item standar harga.`);
-    setParsedPreviewItems(null);
-    setTimeout(() => {
-      setIsImportOpen(false);
-      setImportSuccessMessage(null);
-    }, 1500);
+    onUpdateStandarHargaList?.(updatedList);
+
+    // 2. Simpan ke cloud Firebase Firestore jika kuota belum habis
+    try {
+      const fbResult = await saveStandarHargaToFirestore(updatedList);
+      if (fbResult.quotaExhausted) {
+        setImportSuccessMessage(
+          `Berhasil mengimpor ${parsedPreviewItems.length} item standar harga ke basis data lokal (IndexedDB). Kuota harian Firebase telah tercapai untuk hari ini.`
+        );
+      } else {
+        setImportSuccessMessage(
+          `Berhasil mengimpor ${parsedPreviewItems.length} item standar harga dan telah tersimpan di cloud Firebase Firestore!`
+        );
+      }
+      setSyncStatusMessage('Basis data standar harga berhasil diperbarui.');
+      setTimeout(() => setSyncStatusMessage(null), 5000);
+    } catch (fbErr) {
+      console.warn('Gagal sinkron ke Firebase:', fbErr);
+      setImportSuccessMessage(
+        `Berhasil mengimpor ${parsedPreviewItems.length} item ke penyimpanan lokal browser (IndexedDB).`
+      );
+    } finally {
+      setIsSavingFirebase(false);
+      setParsedPreviewItems(null);
+      // Muat ulang lazy load halaman 1 sesuai limit yang dipilih
+      setCurrentPage(1);
+      fetchLazyData(1, itemsPerPage, selectedCategory, searchQuery);
+      setTimeout(() => {
+        setIsImportOpen(false);
+        setImportSuccessMessage(null);
+      }, 2200);
+    }
+  };
+
+  // Sinkronkan manual seluruh data ke Firebase Firestore
+  const handleSyncToFirebase = async () => {
+    setIsSyncingFirebase(true);
+    setSyncStatusMessage('Sedang menyinkronkan seluruh katalog standar harga ke cloud Firebase Firestore...');
+    try {
+      const all = await getLoadedStandarHargaList();
+      const res = await saveStandarHargaToFirestore(all);
+      setSyncStatusMessage(res.message);
+      setTimeout(() => setSyncStatusMessage(null), 5000);
+    } catch (err) {
+      setSyncStatusMessage(
+        `Gagal sinkron ke Firebase: ${err instanceof Error ? err.message : String(err)}`
+      );
+      setTimeout(() => setSyncStatusMessage(null), 6000);
+    } finally {
+      setIsSyncingFirebase(false);
+    }
   };
 
   // Open Form Add
@@ -254,77 +361,70 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
   };
 
   // Save Add/Edit
-  const handleSaveForm = (e: React.FormEvent) => {
+  const handleSaveForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formNama.trim() || !formKode.trim()) {
       alert('Mohon isi nama dan kode standar harga!');
       return;
     }
 
-    let updatedList: StandarHargaItem[];
-    if (editingItem) {
-      updatedList = standarHargaList.map((it) => {
-        if (it.id === editingItem.id) {
-          return {
-            ...it,
-            kategori: formCategory,
-            kode_standar_harga: formKode.trim(),
-            nama_standar_harga: formNama.trim(),
-            spek: formSpek.trim() || formNama.trim(),
-            satuan: formSatuan.trim() || 'Paket',
-            harga_satuan: Number(formHarga) || 0,
-            kode_akun: formKodeAkun.trim() || undefined,
-            nama_akun: formNamaAkun.trim() || undefined,
-            kelompok_standar_harga: formKelompok.trim() || undefined,
-            updated_at: new Date().toISOString(),
-          };
+    const itemToSave: StandarHargaItem = editingItem
+      ? {
+          ...editingItem,
+          kategori: formCategory,
+          kode_standar_harga: formKode.trim(),
+          nama_standar_harga: formNama.trim(),
+          spek: formSpek.trim() || formNama.trim(),
+          satuan: formSatuan.trim() || 'Paket',
+          harga_satuan: Number(formHarga) || 0,
+          kode_akun: formKodeAkun.trim() || undefined,
+          nama_akun: formNamaAkun.trim() || undefined,
+          kelompok_standar_harga: formKelompok.trim() || undefined,
+          updated_at: new Date().toISOString(),
         }
-        return it;
-      });
-    } else {
-      const newItem: StandarHargaItem = {
-        id: `sh-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        id_standar_harga: Math.floor(4000000 + Math.random() * 900000),
-        kategori: formCategory,
-        kode_standar_harga: formKode.trim(),
-        nama_standar_harga: formNama.trim(),
-        spek: formSpek.trim() || formNama.trim(),
-        satuan: formSatuan.trim() || 'Paket',
-        harga_satuan: Number(formHarga) || 0,
-        kode_akun: formKodeAkun.trim() || undefined,
-        nama_akun: formNamaAkun.trim() || undefined,
-        kelompok_standar_harga: formKelompok.trim() || undefined,
-        tipe_dokumen: 'Input Manual Admin',
-        is_active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      updatedList = [newItem, ...standarHargaList];
-    }
+      : {
+          id: `sh-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          id_standar_harga: Math.floor(4000000 + Math.random() * 900000),
+          kategori: formCategory,
+          kode_standar_harga: formKode.trim(),
+          nama_standar_harga: formNama.trim(),
+          spek: formSpek.trim() || formNama.trim(),
+          satuan: formSatuan.trim() || 'Paket',
+          harga_satuan: Number(formHarga) || 0,
+          kode_akun: formKodeAkun.trim() || undefined,
+          nama_akun: formNamaAkun.trim() || undefined,
+          kelompok_standar_harga: formKelompok.trim() || undefined,
+          tipe_dokumen: 'Input Manual Admin',
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
 
-    saveStoredStandarHarga(updatedList);
-    onUpdateStandarHargaList(updatedList);
+    const updated = await saveSingleStandarHarga(itemToSave);
+    onUpdateStandarHargaList?.(updated);
     setIsFormOpen(false);
+    fetchLazyData(currentPage, itemsPerPage, selectedCategory, searchQuery);
   };
 
   // Delete item
-  const handleDeleteItem = (item: StandarHargaItem) => {
+  const handleDeleteItem = async (item: StandarHargaItem) => {
     if (window.confirm(`Hapus standar harga "${item.nama_standar_harga}" (${item.kode_standar_harga})?`)) {
-      const updatedList = standarHargaList.filter((it) => it.id !== item.id);
-      saveStoredStandarHarga(updatedList);
-      onUpdateStandarHargaList(updatedList);
+      const updated = await deleteSingleStandarHarga(item.id);
+      onUpdateStandarHargaList?.(updated);
+      fetchLazyData(currentPage, itemsPerPage, selectedCategory, searchQuery);
     }
   };
 
   // Reset to default seed
-  const handleResetDefault = () => {
+  const handleResetDefault = async () => {
     if (
       window.confirm(
         'Apakah Anda yakin ingin mereset seluruh database Standar Satuan Harga kembali ke data resmi bawaan SIPD NTB 2027?'
       )
     ) {
       const defaultList = resetStandarHargaToDefault();
-      onUpdateStandarHargaList(defaultList);
+      onUpdateStandarHargaList?.(defaultList);
+      fetchLazyData(1, itemsPerPage, selectedCategory, '');
     }
   };
 
@@ -339,6 +439,46 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
           ]}
         />
 
+        {quotaStatus.isExhausted && (
+          <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs animate-in fade-in">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Batas Kuota Harian Firebase Firestore Tercapai</p>
+                <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
+                  {quotaStatus.message || 'Batas kuota penulisan gratis harian Firebase telah tercapai. Data tetap tersimpan aman di penyimpanan lokal (IndexedDB) dan aplikasi tetap berfungsi normal.'}
+                </p>
+              </div>
+            </div>
+            {quotaStatus.upgradeUrl && (
+              <a
+                href={quotaStatus.upgradeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shrink-0 inline-flex items-center gap-1.5 transition-colors shadow-xs"
+              >
+                <span>Tingkatkan Kuota Firebase</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
+          </div>
+        )}
+
+        {syncStatusMessage && (
+          <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/70 border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200 text-xs flex items-center justify-between gap-3 shadow-xs animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-blue-600 shrink-0" />
+              <span className="font-semibold">{syncStatusMessage}</span>
+            </div>
+            <button
+              onClick={() => setSyncStatusMessage(null)}
+              className="p-1 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-500 cursor-pointer text-xs"
+            >
+              &times;
+            </button>
+          </div>
+        )}
+
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-start gap-4">
             <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-emerald-700 via-teal-600 to-emerald-500 text-white shadow-md shadow-emerald-900/10 shrink-0">
@@ -350,11 +490,19 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
                   Standar Satuan Harga Daerah
                 </h1>
                 <Badge variant="primary" size="sm" className="font-bold">
-                  {standarHargaList.length} Item Database
+                  {totalItems} Item Database
                 </Badge>
                 <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                   TA 2027
                 </span>
+                <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold">
+                  <Zap className="w-3 h-3 text-indigo-500 shrink-0" />
+                  <span>Lazy Load: {displayedItems.length} dari {totalItems} item</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[11px] font-semibold">
+                  <Cloud className="w-3 h-3 text-blue-500 shrink-0" />
+                  <span>{quotaStatus.isExhausted ? 'Tersimpan di IndexedDB Lokal' : 'Tersimpan di Cloud Firebase'}</span>
+                </div>
               </div>
               <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-2xl">
                 Katalog acuan belanja standar satuan harga (SSH), pokok kegiatan (HSPK), standar belanja (ASB), dan biaya umum (SBU) yang terhubung langsung ke rincian anggaran SIPD Bakesbangpoldagri Provinsi NTB.
@@ -377,7 +525,10 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => exportStandarHargaToExcel(standarHargaList)}
+              onClick={async () => {
+                const all = await getLoadedStandarHargaList();
+                exportStandarHargaToExcel(all);
+              }}
               icon={<FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />}
               title="Ekspor seluruh database ke file Excel"
             >
@@ -388,7 +539,29 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
               <Button
                 variant="outline"
                 size="sm"
+                disabled={isSyncingFirebase}
+                onClick={handleSyncToFirebase}
+                icon={
+                  isSyncingFirebase ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                  ) : (
+                    <CloudUpload className="w-3.5 h-3.5 text-blue-600" />
+                  )
+                }
+                title="Sinkronkan database standar harga saat ini ke Firebase Firestore"
+                className="border-blue-200 hover:bg-blue-50 text-blue-700 dark:text-blue-300"
+              >
+                {isSyncingFirebase ? 'Menyinkronkan...' : 'Sinkron ke Firebase'}
+              </Button>
+            )}
+
+            {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => {
+                  setSelectedRawFile(null);
+                  setImportFileName('');
                   setParsedPreviewItems(null);
                   setImportErrorMessage(null);
                   setImportSuccessMessage(null);
@@ -633,7 +806,21 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {paginatedItems.length === 0 ? (
+              {isLoadingPage ? (
+                <tr>
+                  <td colSpan={isAdmin ? 8 : 7} className="py-16 text-center">
+                    <div className="flex flex-col items-center justify-center space-y-3">
+                      <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Memuat data standar harga (Lazy Load: {itemsPerPage} baris)...
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        Mengambil hanya potongan data yang tampil di layar
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              ) : displayedItems.length === 0 ? (
                 <tr>
                   <td colSpan={isAdmin ? 8 : 7} className="py-12 text-center">
                     <div className="max-w-md mx-auto space-y-3">
@@ -662,7 +849,7 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
                   </td>
                 </tr>
               ) : (
-                paginatedItems.map((item, idx) => {
+                displayedItems.map((item, idx) => {
                   const globalIdx = (currentPage - 1) * itemsPerPage + idx + 1;
                   const config = CATEGORY_CONFIG[item.kategori] || CATEGORY_CONFIG.SSH;
 
@@ -753,27 +940,27 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
         </div>
 
         {/* Pagination Footer */}
-        {filteredItems.length > 0 && (
+        {totalItems > 0 && (
           <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-850 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
             <div>
               Menampilkan{' '}
               <span className="font-bold text-slate-800 dark:text-slate-200">
-                {Math.min(filteredItems.length, (currentPage - 1) * itemsPerPage + 1)}
+                {Math.min(totalItems, (currentPage - 1) * itemsPerPage + 1)}
               </span>{' '}
               sampai{' '}
               <span className="font-bold text-slate-800 dark:text-slate-200">
-                {Math.min(filteredItems.length, currentPage * itemsPerPage)}
+                {Math.min(totalItems, currentPage * itemsPerPage)}
               </span>{' '}
               dari{' '}
               <span className="font-bold text-slate-800 dark:text-slate-200">
-                {filteredItems.length}
+                {totalItems}
               </span>{' '}
               item
             </div>
 
             <div className="flex items-center gap-1">
               <button
-                disabled={currentPage <= 1}
+                disabled={currentPage <= 1 || isLoadingPage}
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 transition-colors cursor-pointer"
               >
@@ -789,6 +976,7 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
                 return (
                   <button
                     key={p}
+                    disabled={isLoadingPage}
                     onClick={() => setCurrentPage(p)}
                     className={`w-8 h-8 rounded-lg font-bold text-xs transition-colors cursor-pointer ${
                       currentPage === p
@@ -802,7 +990,7 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
               })}
 
               <button
-                disabled={currentPage >= totalPages}
+                disabled={currentPage >= totalPages || isLoadingPage}
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 transition-colors cursor-pointer"
               >
@@ -1006,55 +1194,215 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
             </div>
 
             <div className="p-6 space-y-5 overflow-y-auto flex-1 text-xs">
-              {/* Instructions */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800 dark:text-slate-200">
-                    Petunjuk Format Kolom Excel:
-                  </span>
+              {/* Instructions & Template Format */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      Format Struktur Kolom Excel SIPD:
+                    </span>
+                    <Badge variant="success" size="xs">Resmi SIPD NTB</Badge>
+                  </div>
                   <button
+                    type="button"
                     onClick={downloadStandarHargaTemplate}
-                    className="text-emerald-700 dark:text-emerald-400 font-semibold text-[11px] hover:underline flex items-center gap-1"
+                    className="text-emerald-700 dark:text-emerald-400 font-bold text-[11px] hover:underline flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
                   >
-                    <Download className="w-3 h-3" /> Unduh Template Resmi
+                    <Download className="w-3.5 h-3.5" /> Unduh Template Excel (.xlsx)
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Kolom yang didukung: <code className="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded font-mono">Kategori</code> (SSH, HSPK, ASB, SBU), <code className="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded font-mono">Kode Standar Harga</code>, <code className="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded font-mono">Uraian / Nama</code>, <code className="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded font-mono">Spesifikasi</code>, <code className="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded font-mono">Satuan</code>, <code className="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded font-mono">Harga Satuan</code>, <code className="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded font-mono">Kode Akun</code>, dan <code className="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded font-mono">Nama Akun</code>.
+                  Sistem mendukung pembacaan file Excel standar SIPD dengan 9 susunan kolom:
                 </p>
+                <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
+                  {[
+                    'KODE KELOMPOK BARANG',
+                    'URAIAN KELOMPOK BARANG',
+                    'ID STANDAR HARGA',
+                    'KODE BARANG',
+                    'URAIAN BARANG',
+                    'SPESIFIKASI',
+                    'SATUAN',
+                    'HARGA SATUAN',
+                    'KODE REKENING',
+                  ].map((col) => (
+                    <span
+                      key={col}
+                      className="px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold"
+                    >
+                      {col}
+                    </span>
+                  ))}
+                </div>
               </div>
 
-              {/* Import Options */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Target Kategori Standar
+              {/* Category Selector Cards */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-extrabold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-blue-600" />
+                    Pilih Jenis Satuan Harga yang Diunggah:
                   </label>
-                  <select
-                    value={importTargetCategory}
-                    onChange={(e) => setImportTargetCategory(e.target.value as any)}
-                    className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
-                  >
-                    <option value="AUTO">Otomatis (Baca dari Kolom / Nama Sheet Excel)</option>
-                    <option value="SSH">SSH - Standar Satuan Harga</option>
-                    <option value="HSPK">HSPK - Harga Satuan Pokok Kegiatan</option>
-                    <option value="ASB">ASB - Analisis Standar Belanja</option>
-                    <option value="SBU">SBU - Standar Biaya Umum</option>
-                  </select>
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    Pilih salah satu untuk menetapkan kategori data
+                  </span>
                 </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Metode Penyimpanan Data
-                  </label>
-                  <select
-                    value={importMode}
-                    onChange={(e) => setImportMode(e.target.value as any)}
-                    className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {/* AUTO / Multi */}
+                  <div
+                    onClick={() => handleSelectImportCategory('AUTO')}
+                    className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                      importTargetCategory === 'AUTO'
+                        ? 'border-blue-600 bg-blue-50/70 dark:bg-blue-950/50 ring-2 ring-blue-500 shadow-xs'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 hover:border-slate-300'
+                    }`}
                   >
-                    <option value="merge">Gabungkan & Perbarui (Merge / Update Data)</option>
-                    <option value="replace">Ganti Seluruh Data (Replace Database)</option>
-                  </select>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-extrabold text-xs text-blue-800 dark:text-blue-300">
+                        Otomatis (Multi)
+                      </span>
+                      {importTargetCategory === 'AUTO' && (
+                        <div className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center">
+                          <Check className="w-2.5 h-2.5" />
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                      Deteksi otomatis dari kolom Kategori atau nama sheet file Excel.
+                    </p>
+                  </div>
+
+                  {/* SSH */}
+                  <div
+                    onClick={() => handleSelectImportCategory('SSH')}
+                    className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                      importTargetCategory === 'SSH'
+                        ? 'border-emerald-600 bg-emerald-50/70 dark:bg-emerald-950/50 ring-2 ring-emerald-500 shadow-xs'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-extrabold text-xs text-emerald-800 dark:text-emerald-300">
+                          SSH
+                        </span>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 font-bold">
+                          Operasional
+                        </span>
+                      </div>
+                      {importTargetCategory === 'SSH' && (
+                        <div className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center">
+                          <Check className="w-2.5 h-2.5" />
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                      Standar Satuan Harga: Barang operasional, ATK, cetak, bahan rapat, BBM.
+                    </p>
+                  </div>
+
+                  {/* HSPK */}
+                  <div
+                    onClick={() => handleSelectImportCategory('HSPK')}
+                    className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                      importTargetCategory === 'HSPK'
+                        ? 'border-blue-600 bg-blue-50/70 dark:bg-blue-950/50 ring-2 ring-blue-500 shadow-xs'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-extrabold text-xs text-blue-800 dark:text-blue-300">
+                          HSPK
+                        </span>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 font-bold">
+                          Konstruksi
+                        </span>
+                      </div>
+                      {importTargetCategory === 'HSPK' && (
+                        <div className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center">
+                          <Check className="w-2.5 h-2.5" />
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                      Harga Satuan Pokok Kegiatan: Bahan bangunan, konstruksi fisik, pemeliharaan.
+                    </p>
+                  </div>
+
+                  {/* ASB */}
+                  <div
+                    onClick={() => handleSelectImportCategory('ASB')}
+                    className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                      importTargetCategory === 'ASB'
+                        ? 'border-purple-600 bg-purple-50/70 dark:bg-purple-950/50 ring-2 ring-purple-500 shadow-xs'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-extrabold text-xs text-purple-800 dark:text-purple-300">
+                          ASB
+                        </span>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 font-bold">
+                          Kegiatan
+                        </span>
+                      </div>
+                      {importTargetCategory === 'ASB' && (
+                        <div className="w-4 h-4 rounded-full bg-purple-600 text-white flex items-center justify-center">
+                          <Check className="w-2.5 h-2.5" />
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                      Analisis Standar Belanja: Paket kegiatan non-fisik (bimtek, rapat koordinasi).
+                    </p>
+                  </div>
+
+                  {/* SBU */}
+                  <div
+                    onClick={() => handleSelectImportCategory('SBU')}
+                    className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                      importTargetCategory === 'SBU'
+                        ? 'border-amber-600 bg-amber-50/70 dark:bg-amber-950/50 ring-2 ring-amber-500 shadow-xs'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-extrabold text-xs text-amber-800 dark:text-amber-300">
+                          SBU
+                        </span>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 font-bold">
+                          Honor & Dinas
+                        </span>
+                      </div>
+                      {importTargetCategory === 'SBU' && (
+                        <div className="w-4 h-4 rounded-full bg-amber-600 text-white flex items-center justify-center">
+                          <Check className="w-2.5 h-2.5" />
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                      Standar Biaya Umum: Honor narasumber/moderator/panitia, uang harian dinas.
+                    </p>
+                  </div>
+
+                  {/* Mode penyimpanan */}
+                  <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 flex flex-col justify-between">
+                    <span className="font-extrabold text-xs text-slate-800 dark:text-slate-200 mb-1">
+                      Metode Penyimpanan:
+                    </span>
+                    <select
+                      value={importMode}
+                      onChange={(e) => setImportMode(e.target.value as any)}
+                      className="w-full p-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-xs font-semibold focus:outline-none cursor-pointer"
+                    >
+                      <option value="merge">Gabungkan & Update</option>
+                      <option value="replace">Ganti Seluruh Data</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -1142,17 +1490,23 @@ export const StandarHargaPage: React.FC<StandarHargaPageProps> = ({
             </div>
 
             <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-end gap-2 text-xs">
-              <Button variant="ghost" size="sm" onClick={() => setIsImportOpen(false)}>
+              <Button variant="ghost" size="sm" disabled={isSavingFirebase} onClick={() => setIsImportOpen(false)}>
                 Batal
               </Button>
               <Button
                 variant="primary"
                 size="sm"
-                disabled={!parsedPreviewItems || parsedPreviewItems.length === 0}
+                disabled={!parsedPreviewItems || parsedPreviewItems.length === 0 || isSavingFirebase}
                 onClick={handleConfirmImport}
-                icon={<Upload className="w-3.5 h-3.5" />}
+                icon={
+                  isSavingFirebase ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <CloudUpload className="w-3.5 h-3.5" />
+                  )
+                }
               >
-                Konfirmasi & Impor ke Database
+                {isSavingFirebase ? 'Menyimpan ke Firebase...' : 'Konfirmasi & Simpan ke Firebase'}
               </Button>
             </div>
           </div>

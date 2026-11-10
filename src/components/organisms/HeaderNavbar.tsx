@@ -1,19 +1,12 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Landmark,
   Calendar,
-  RefreshCw,
-  Upload,
-  Users,
   LogOut,
   Shield,
-  UserCheck,
-  ShieldCheck,
   Building,
-  Database,
   Menu,
 } from 'lucide-react';
-import { Button } from '../atoms/Button';
 import { Badge } from '../atoms/Badge';
 import { AppUser } from '../../types/auth';
 import { Link } from '../../services/router';
@@ -32,6 +25,13 @@ export interface HeaderNavbarProps {
   isSyncing?: boolean;
 }
 
+const getInitials = (name?: string) => {
+  if (!name) return 'U';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+};
+
 export const HeaderNavbar: React.FC<HeaderNavbarProps> = ({
   currentUser,
   appUser,
@@ -45,6 +45,23 @@ export const HeaderNavbar: React.FC<HeaderNavbarProps> = ({
   isSyncing = false,
 }) => {
   const isAdmin = appUser?.role === 'admin';
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // Click outside to close user menu popover
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
+    };
+    if (isUserMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isUserMenuOpen]);
 
   return (
     <header className="sticky top-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
@@ -76,16 +93,6 @@ export const HeaderNavbar: React.FC<HeaderNavbarProps> = ({
               </span>
             </Link>
 
-            {/* Desktop Context Label */}
-            <div className="hidden lg:flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Pemerintah Provinsi Nusa Tenggara Barat
-              </span>
-              <span className="text-slate-300 dark:text-slate-700">•</span>
-              <span className="text-xs text-slate-500 dark:text-slate-400">
-                Badan Kesatuan Bangsa dan Politik Dalam Negeri
-              </span>
-            </div>
           </div>
 
           {/* Right Actions & User info */}
@@ -96,92 +103,110 @@ export const HeaderNavbar: React.FC<HeaderNavbarProps> = ({
               <span>TA 2027</span>
             </div>
 
-            {/* Refresh / Sync */}
-            {onRefreshData && (
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={onRefreshData}
-                disabled={isSyncing}
-                icon={<RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />}
-                title="Sinkronisasi data"
-              >
-                <span className="hidden sm:inline">Sinkron</span>
-              </Button>
-            )}
-
-            {/* Import / Export JSON - ONLY FOR ADMIN */}
-            {isAdmin ? (
-              <Button
-                variant="outline"
-                size="xs"
-                onClick={onOpenImportExport}
-                icon={<Upload className="w-3.5 h-3.5 text-slate-600" />}
-                title="Import data SIPD melalui JSON (Khusus Admin)"
-              >
-                <span className="hidden sm:inline">Import JSON SIPD</span>
-                <span className="sm:hidden">JSON</span>
-              </Button>
-            ) : null}
-
-            {/* User Management Button - ONLY FOR ADMIN */}
-            {isAdmin && onOpenUserManagement && (
-              <Button
-                variant="outline"
-                size="xs"
-                onClick={onOpenUserManagement}
-                icon={<Users className="w-3.5 h-3.5 text-slate-600" />}
-                title="Kelola Pengguna Sistem"
-              >
-                <span className="hidden md:inline">Kelola User</span>
-              </Button>
-            )}
-
-            {/* User Profile & Role Badge */}
+            {/* User Profile Avatar with Click-to-Open Details Dropdown */}
             {appUser && (
-              <div className="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-800">
-                <div
-                  className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
-                    isAdmin
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-teal-600 text-white'
+              <div
+                ref={userMenuRef}
+                className="relative pl-1 sm:pl-2 border-l border-slate-200 dark:border-slate-800"
+              >
+                {/* Avatar Button Trigger (Hanya Avatar) */}
+                <button
+                  type="button"
+                  onClick={() => setIsUserMenuOpen((prev) => !prev)}
+                  className={`p-0.5 rounded-full transition-all cursor-pointer select-none focus:outline-none ${
+                    isUserMenuOpen
+                      ? 'ring-2 ring-emerald-500 ring-offset-2 dark:ring-offset-slate-900 scale-105'
+                      : 'hover:ring-2 hover:ring-slate-300 dark:hover:ring-slate-700 hover:scale-105'
                   }`}
-                  title={appUser.nama}
+                  title={`Profil Pengguna: ${appUser.nama} (@${appUser.username})`}
+                  aria-expanded={isUserMenuOpen}
                 >
-                  {isAdmin ? (
-                    <ShieldCheck className="w-4 h-4" />
-                  ) : (
-                    <UserCheck className="w-4 h-4" />
-                  )}
-                </div>
-
-                <div className="hidden sm:block text-left">
-                  <div className="flex items-center gap-1.5 leading-none">
-                    <span className="text-xs font-bold text-slate-900 dark:text-white max-w-[120px] truncate">
-                      {appUser.nama.split(' ')[0]}
-                    </span>
-                    <Badge
-                      variant={isAdmin ? 'primary' : 'info'}
-                      size="xs"
-                      className="text-[9px] py-0 px-1 font-bold"
+                  {/* Avatar Circle with Initials and Online Dot */}
+                  <div className="relative">
+                    <div
+                      className={`w-9 h-9 rounded-full flex items-center justify-center font-black text-xs text-white shadow-md ${
+                        isAdmin
+                          ? 'bg-gradient-to-tr from-emerald-700 via-teal-600 to-emerald-500 shadow-emerald-900/25'
+                          : 'bg-gradient-to-tr from-blue-700 via-cyan-600 to-blue-500 shadow-blue-900/25'
+                      }`}
                     >
-                      {isAdmin ? 'ADMIN' : 'USER BIASA'}
-                    </Badge>
+                      {getInitials(appUser.nama)}
+                    </div>
+                    {/* Status indicator dot */}
+                    <span
+                      className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900"
+                      title="Online"
+                    />
                   </div>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    @{appUser.username}
-                  </span>
-                </div>
+                </button>
 
-                {onLogout && (
-                  <button
-                    type="button"
-                    onClick={onLogout}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors ml-1 cursor-pointer"
-                    title="Keluar dari sistem"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
+                {/* Popover Card: Tampil informasi yang ada di div saat avatar di-klik */}
+                {isUserMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                    {/* Profile Header */}
+                    <div className="p-4 bg-gradient-to-b from-slate-50 to-white dark:from-slate-850 dark:to-slate-900 border-b border-slate-100 dark:border-slate-800">
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-sm text-white shadow-md shrink-0 ${
+                            isAdmin
+                              ? 'bg-gradient-to-tr from-emerald-700 via-teal-600 to-emerald-500'
+                              : 'bg-gradient-to-tr from-blue-700 via-cyan-600 to-blue-500'
+                          }`}
+                        >
+                          {getInitials(appUser.nama)}
+                        </div>
+                        <div className="space-y-1 min-w-0 flex-1">
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                            {appUser.nama}
+                          </h4>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                            @{appUser.username}
+                          </p>
+                          <div className="pt-0.5">
+                            <Badge
+                              variant={isAdmin ? 'primary' : 'info'}
+                              size="xs"
+                              className="font-bold uppercase tracking-wider text-[10px]"
+                            >
+                              {isAdmin ? 'ADMINISTRATOR' : 'USER BIASA'}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 p-2.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/60 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Building className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span className="truncate">Bakesbangpoldagri Provinsi NTB</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-slate-500 text-[10px]">
+                          <Shield className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>
+                            {isAdmin
+                              ? 'Hak Akses Penuh Anggaran & Master Data'
+                              : 'Hak Akses Usulan Rincian Belanja'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Popover Actions List */}
+                    {onLogout && (
+                      <div className="p-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsUserMenuOpen(false);
+                            onLogout();
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors text-left cursor-pointer"
+                        >
+                          <LogOut className="w-4 h-4" />
+                          <span>Keluar dari Sistem</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}

@@ -3,6 +3,7 @@ import {
   getFirestore,
   collection,
   doc,
+  getDoc,
   setDoc,
   deleteDoc,
   updateDoc,
@@ -23,7 +24,7 @@ import {
   type User,
 } from 'firebase/auth';
 import rawConfig from '../../firebase-applet-config.json';
-import { RincianBelanjaItem, SubKegiatan } from '../types/budget';
+import { RincianBelanjaItem, SubKegiatan, StandarHargaItem } from '../types/budget';
 import { AppUser, DEFAULT_USERS } from '../types/auth';
 import { INITIAL_USER_RINCIAN_DATA, INITIAL_SUB_KEGIATAN_LIST } from '../data/initialBudgetData';
 import { hashPassword, verifyPassword } from './cryptoService';
@@ -91,7 +92,61 @@ export interface FirestoreErrorInfo {
   };
 }
 
+export interface FirestoreQuotaStatus {
+  isExhausted: boolean;
+  message: string;
+  metric?: string;
+  resetInfo: string;
+  upgradeUrl: string;
+}
+
+let quotaStatus: FirestoreQuotaStatus = {
+  isExhausted: false,
+  message: '',
+  resetInfo: 'Batas kuota harian gratis Firebase Firestore (Spark Plan) telah tercapai untuk hari ini dan akan otomatis direset besok hari. Sistem tetap berjalan menggunakan basis data lokal browser (IndexedDB).',
+  upgradeUrl: `https://console.firebase.google.com/project/${firebaseConfig.projectId}/firestore/databases/${firebaseConfig.firestoreDatabaseId}/data?openUpgradeDialog=true`,
+};
+
+const quotaListeners = new Set<(status: FirestoreQuotaStatus) => void>();
+
+export function getFirestoreQuotaStatus(): FirestoreQuotaStatus {
+  return quotaStatus;
+}
+
+export function subscribeQuotaStatus(listener: (status: FirestoreQuotaStatus) => void): () => void {
+  quotaListeners.add(listener);
+  listener(quotaStatus);
+  return () => quotaListeners.delete(listener);
+}
+
+export function isQuotaExhaustedError(error: unknown): boolean {
+  if (!error) return false;
+  const msg = error instanceof Error ? error.message : String(error);
+  const code = (error as any)?.code || '';
+  return (
+    code === 'resource-exhausted' ||
+    msg.includes('resource-exhausted') ||
+    msg.includes('Quota exceeded') ||
+    msg.includes('Quota limit exceeded')
+  );
+}
+
+export function markQuotaExhausted(rawMessage: string, metric = 'write'): void {
+  quotaStatus = {
+    isExhausted: true,
+    message: rawMessage,
+    metric,
+    resetInfo: 'Batas kuota transaksi harian gratis Firebase (Spark Plan) telah tercapai hari ini. Sistem otomatis beralih ke penyimpanan lokal browser (IndexedDB) dan akan tersinkronisasi kembali esok hari.',
+    upgradeUrl: `https://console.firebase.google.com/project/${firebaseConfig.projectId}/firestore/databases/${firebaseConfig.firestoreDatabaseId}/data?openUpgradeDialog=true`,
+  };
+  quotaListeners.forEach((l) => l(quotaStatus));
+}
+
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  if (isQuotaExhaustedError(error)) {
+    markQuotaExhausted(error instanceof Error ? error.message : String(error));
+  }
+
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -109,17 +164,22 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path,
   };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
+  console.warn('Firestore Error Handled:', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
 
 // Connection check
 export async function testFirestoreConnection(): Promise<boolean> {
+  if (quotaStatus.isExhausted) return false;
   try {
     const q = query(collection(db, SUB_KEGIATAN_COLLECTION), limit(1));
     await getDocs(q);
     return true;
   } catch (error) {
+    if (isQuotaExhaustedError(error)) {
+      markQuotaExhausted(error instanceof Error ? error.message : String(error));
+      return false;
+    }
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn('Firebase client is currently offline or unreachable.');
     } else {
@@ -133,9 +193,21 @@ export interface FirestoreConnectionCheckResult {
   connected: boolean;
   message: string;
   reason?: string;
+  quotaExhausted?: boolean;
+  upgradeUrl?: string;
 }
 
 export async function checkFirestoreConnectionStatus(): Promise<FirestoreConnectionCheckResult> {
+  if (quotaStatus.isExhausted) {
+    return {
+      connected: false,
+      message: 'Batas Kuota Harian Firebase Tercapai',
+      reason: quotaStatus.resetInfo,
+      quotaExhausted: true,
+      upgradeUrl: quotaStatus.upgradeUrl,
+    };
+  }
+
   try {
     const q = query(collection(db, SUB_KEGIATAN_COLLECTION), limit(1));
     await getDocs(q);
@@ -147,6 +219,17 @@ export async function checkFirestoreConnectionStatus(): Promise<FirestoreConnect
     const err = error as { message?: string; code?: string };
     const errMsg = err?.message || String(error);
     const errCode = err?.code || '';
+
+    if (isQuotaExhaustedError(error)) {
+      markQuotaExhausted(errMsg);
+      return {
+        connected: false,
+        message: 'Batas Kuota Harian Firebase Tercapai',
+        reason: quotaStatus.resetInfo,
+        quotaExhausted: true,
+        upgradeUrl: quotaStatus.upgradeUrl,
+      };
+    }
 
     let reason = 'Tidak dapat menghubungi server Firebase. Periksa koneksi internet Anda.';
 
@@ -180,6 +263,196 @@ export async function checkFirestoreConnectionStatus(): Promise<FirestoreConnect
 export const SUB_KEGIATAN_COLLECTION = 'sub_kegiatan';
 export const RINCIAN_COLLECTION = 'rincian_belanja';
 export const APP_USERS_COLLECTION = 'app_users';
+export const STANDAR_HARGA_COLLECTION = 'standar_harga';
+
+/**
+ * Menyimpan seluruh katalog Standar Harga ke Firestore dengan arsitektur chunk berkapasitas tinggi.
+ * Memecah ribuan data menjadi dokumen chunk (500 item per chunk) untuk menghemat kuota Firestore
+ * dan menghindari pembatasan ukuran dokumen 1MB.
+ */
+export async function saveStandarHargaToFirestore(
+  items: StandarHargaItem[]
+): Promise<{ success: boolean; message: string; count: number; quotaExhausted?: boolean }> {
+  if (quotaStatus.isExhausted) {
+    return {
+      success: false,
+      quotaExhausted: true,
+      message: 'Batas kuota harian Firebase Firestore (Spark Plan) telah tercapai hari ini. Data disimpan dengan aman di basis data lokal browser (IndexedDB).',
+      count: items.length,
+    };
+  }
+
+  try {
+    const CHUNK_SIZE = 500;
+    const totalChunks = Math.ceil(items.length / CHUNK_SIZE);
+    const nowIso = new Date().toISOString();
+
+    // 1. Simpan metadata ringkasan katalog
+    const metaDocId = 'catalog_meta';
+    const metaPayload = {
+      id: metaDocId,
+      type: 'meta',
+      items: [],
+      count: items.length,
+      updated_at: nowIso,
+    };
+    await setDoc(doc(db, STANDAR_HARGA_COLLECTION, metaDocId), metaPayload);
+
+    // 2. Simpan setiap chunk
+    for (let c = 0; c < totalChunks; c++) {
+      const slice = items.slice(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
+      const cleanedSlice = slice.map((item) => cleanFirestoreData(item));
+      const chunkDocId = `chunk_${c}`;
+      const chunkPayload = {
+        id: chunkDocId,
+        type: 'chunk',
+        items: cleanedSlice,
+        count: cleanedSlice.length,
+        updated_at: nowIso,
+      };
+      await setDoc(doc(db, STANDAR_HARGA_COLLECTION, chunkDocId), chunkPayload);
+    }
+
+    // 3. Bersihkan chunk lama yang tidak lagi terpakai jika jumlah chunk sekarang lebih sedikit
+    try {
+      const existingSnap = await getDocs(collection(db, STANDAR_HARGA_COLLECTION));
+      for (const d of existingSnap.docs) {
+        if (d.id.startsWith('chunk_')) {
+          const idx = parseInt(d.id.replace('chunk_', ''), 10);
+          if (!isNaN(idx) && idx >= totalChunks) {
+            await deleteDoc(d.ref);
+          }
+        }
+      }
+    } catch {
+      // Non-fatal cleanup notice
+    }
+
+    return {
+      success: true,
+      message: `Berhasil menyimpan ${items.length} standar harga ke cloud database Firebase Firestore (${totalChunks} blok dokumen).`,
+      count: items.length,
+    };
+  } catch (error) {
+    if (isQuotaExhaustedError(error)) {
+      markQuotaExhausted(error instanceof Error ? error.message : String(error));
+      return {
+        success: false,
+        quotaExhausted: true,
+        message: 'Batas kuota harian Firebase Firestore (Spark Plan) tercapai untuk hari ini. Data tersimpan aman di basis data lokal browser (IndexedDB).',
+        count: items.length,
+      };
+    }
+    console.error('saveStandarHargaToFirestore error:', error);
+    handleFirestoreError(error, OperationType.WRITE, STANDAR_HARGA_COLLECTION);
+  }
+}
+
+/**
+ * Lazy Load: Mengambil hanya satu dokumen chunk spesifik dari Firestore sesuai kebutuhan halaman front-end.
+ * Menghemat waktu baca dan konsumsi jaringan, tidak perlu mengunduh seluruh database.
+ */
+export async function loadStandarHargaChunkFromFirestore(
+  chunkIdx: number
+): Promise<StandarHargaItem[] | null> {
+  if (quotaStatus.isExhausted) return null;
+  try {
+    const chunkDocRef = doc(db, STANDAR_HARGA_COLLECTION, `chunk_${chunkIdx}`);
+    const snap = await getDoc(chunkDocRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (Array.isArray(data.items)) {
+        return data.items as StandarHargaItem[];
+      }
+    }
+    return null;
+  } catch (error) {
+    if (isQuotaExhaustedError(error)) {
+      markQuotaExhausted(error instanceof Error ? error.message : String(error), 'read');
+    }
+    console.warn('loadStandarHargaChunkFromFirestore notice:', error);
+    return null;
+  }
+}
+
+/**
+ * Memuat seluruh katalog Standar Harga dari Firestore
+ */
+export async function loadStandarHargaFromFirestore(): Promise<StandarHargaItem[] | null> {
+  try {
+    const snap = await getDocs(collection(db, STANDAR_HARGA_COLLECTION));
+    if (snap.empty) return null;
+
+    const allItems: StandarHargaItem[] = [];
+    const chunkDocs = snap.docs.filter((d) => d.id.startsWith('chunk_'));
+
+    // Urutkan chunk berdasarkan indeks
+    chunkDocs.sort((a, b) => {
+      const idxA = parseInt(a.id.replace('chunk_', ''), 10) || 0;
+      const idxB = parseInt(b.id.replace('chunk_', ''), 10) || 0;
+      return idxA - idxB;
+    });
+
+    for (const chunkDoc of chunkDocs) {
+      const data = chunkDoc.data();
+      if (Array.isArray(data.items)) {
+        allItems.push(...(data.items as StandarHargaItem[]));
+      }
+    }
+
+    // Jika ada dokumen tunggal individual (kompatibilitas mundur)
+    const singleDocs = snap.docs.filter((d) => !d.id.startsWith('chunk_') && d.id !== 'catalog_meta');
+    for (const singleDoc of singleDocs) {
+      const data = singleDoc.data();
+      if (data.kode_standar_harga && data.nama_standar_harga) {
+        allItems.push({ ...data, id: singleDoc.id } as StandarHargaItem);
+      }
+    }
+
+    return allItems.length > 0 ? allItems : null;
+  } catch (error) {
+    console.warn('loadStandarHargaFromFirestore notice:', error);
+    return null;
+  }
+}
+
+/**
+ * Berlangganan perubahan data Standar Harga dari Firestore
+ */
+export function subscribeStandarHarga(
+  onData: (items: StandarHargaItem[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    collection(db, STANDAR_HARGA_COLLECTION),
+    (snap) => {
+      if (snap.empty) {
+        onData([]);
+        return;
+      }
+      const allItems: StandarHargaItem[] = [];
+      const chunkDocs = snap.docs.filter((d) => d.id.startsWith('chunk_'));
+      chunkDocs.sort((a, b) => {
+        const idxA = parseInt(a.id.replace('chunk_', ''), 10) || 0;
+        const idxB = parseInt(b.id.replace('chunk_', ''), 10) || 0;
+        return idxA - idxB;
+      });
+
+      for (const chunkDoc of chunkDocs) {
+        const data = chunkDoc.data();
+        if (Array.isArray(data.items)) {
+          allItems.push(...(data.items as StandarHargaItem[]));
+        }
+      }
+
+      onData(allItems);
+    },
+    (error) => {
+      console.warn('subscribeStandarHarga error:', error);
+      onError?.(error);
+    }
+  );
+}
 
 /**
  * Seed initial users into Firestore with encrypted password hashes if collection is empty
@@ -236,8 +509,15 @@ export async function seedInitialDataIfEmpty(): Promise<void> {
 export async function forceSyncLocalToFirestore(
   subList: SubKegiatan[],
   rincianList: RincianBelanjaItem[],
-  userList?: AppUser[]
+  userList?: AppUser[],
+  standarHargaList?: StandarHargaItem[]
 ): Promise<{ success: boolean; message: string }> {
+  if (quotaStatus.isExhausted) {
+    return {
+      success: false,
+      message: 'Batas kuota harian Firebase Firestore (Spark Plan) telah tercapai hari ini. Data disimpan aman pada basis data lokal browser (IndexedDB).',
+    };
+  }
   try {
     // Sync sub kegiatan
     for (const sub of subList) {
@@ -255,11 +535,22 @@ export async function forceSyncLocalToFirestore(
         await setDoc(doc(db, APP_USERS_COLLECTION, user.id), cleanFirestoreData(safeUser), { merge: true });
       }
     }
+    // Sync standar harga jika disediakan
+    if (standarHargaList && standarHargaList.length > 0) {
+      await saveStandarHargaToFirestore(standarHargaList);
+    }
     return {
       success: true,
-      message: `Berhasil sinkronisasi ${subList.length} sub-kegiatan, ${rincianList.length} rincian belanja, dan ${userList?.length || 0} akun pengguna ke Firebase!`,
+      message: `Berhasil sinkronisasi ${subList.length} sub-kegiatan, ${rincianList.length} rincian belanja, ${userList?.length || 0} akun pengguna, dan ${standarHargaList?.length || 0} standar harga ke Firebase!`,
     };
   } catch (error) {
+    if (isQuotaExhaustedError(error)) {
+      markQuotaExhausted(error instanceof Error ? error.message : String(error));
+      return {
+        success: false,
+        message: 'Batas kuota harian Firebase Firestore (Spark Plan) tercapai untuk hari ini. Data disimpan aman pada basis data lokal (IndexedDB).',
+      };
+    }
     console.error('Force sync to Firestore error:', error);
     return {
       success: false,
@@ -530,6 +821,9 @@ function cleanFirestoreData<T extends Record<string, any>>(data: T): Record<stri
  * Add or update a Rincian Belanja item in Firestore
  */
 export async function saveRincianBelanja(item: RincianBelanjaItem): Promise<void> {
+  if (quotaStatus.isExhausted) {
+    return;
+  }
   const docId = item.id || `rinci-${item.id_rinci_sub_bl}`;
   const payload = cleanFirestoreData({
     ...item,
@@ -540,6 +834,10 @@ export async function saveRincianBelanja(item: RincianBelanjaItem): Promise<void
   try {
     await setDoc(doc(db, RINCIAN_COLLECTION, docId), payload);
   } catch (error) {
+    if (isQuotaExhaustedError(error)) {
+      markQuotaExhausted(error instanceof Error ? error.message : String(error));
+      return;
+    }
     handleFirestoreError(error, OperationType.WRITE, `${RINCIAN_COLLECTION}/${docId}`);
   }
 }
@@ -548,9 +846,14 @@ export async function saveRincianBelanja(item: RincianBelanjaItem): Promise<void
  * Delete a Rincian Belanja item in Firestore
  */
 export async function removeRincianBelanja(docId: string): Promise<void> {
+  if (quotaStatus.isExhausted) return;
   try {
     await deleteDoc(doc(db, RINCIAN_COLLECTION, docId));
   } catch (error) {
+    if (isQuotaExhaustedError(error)) {
+      markQuotaExhausted(error instanceof Error ? error.message : String(error));
+      return;
+    }
     handleFirestoreError(error, OperationType.DELETE, `${RINCIAN_COLLECTION}/${docId}`);
   }
 }
@@ -559,10 +862,15 @@ export async function removeRincianBelanja(docId: string): Promise<void> {
  * Update a Sub-Kegiatan summary in Firestore
  */
 export async function saveSubKegiatan(sub: SubKegiatan): Promise<void> {
+  if (quotaStatus.isExhausted) return;
   const docId = sub.id;
   try {
     await setDoc(doc(db, SUB_KEGIATAN_COLLECTION, docId), cleanFirestoreData(sub), { merge: true });
   } catch (error) {
+    if (isQuotaExhaustedError(error)) {
+      markQuotaExhausted(error instanceof Error ? error.message : String(error));
+      return;
+    }
     handleFirestoreError(error, OperationType.WRITE, `${SUB_KEGIATAN_COLLECTION}/${docId}`);
   }
 }
@@ -571,6 +879,7 @@ export async function saveSubKegiatan(sub: SubKegiatan): Promise<void> {
  * Delete a Sub-Kegiatan and its associated rincian belanja items from Firestore
  */
 export async function removeSubKegiatan(docId: string, idSubBl: number): Promise<void> {
+  if (quotaStatus.isExhausted) return;
   try {
     // 1. Delete Sub-Kegiatan document
     await deleteDoc(doc(db, SUB_KEGIATAN_COLLECTION, docId));
@@ -581,6 +890,10 @@ export async function removeSubKegiatan(docId: string, idSubBl: number): Promise
     const deletePromises = snap.docs.map((docItem) => deleteDoc(docItem.ref));
     await Promise.all(deletePromises);
   } catch (error) {
+    if (isQuotaExhaustedError(error)) {
+      markQuotaExhausted(error instanceof Error ? error.message : String(error));
+      return;
+    }
     handleFirestoreError(error, OperationType.DELETE, `${SUB_KEGIATAN_COLLECTION}/${docId}`);
   }
 }

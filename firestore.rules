@@ -47,6 +47,23 @@ service cloud.firestore {
         && data.role is string && (data.role == 'admin' || data.role == 'user');
     }
 
+    function isValidStandarHarga(data) {
+      return (
+        (data.keys().hasAll(['id', 'type', 'items', 'count', 'updated_at'])
+          && data.id is string && data.id.size() <= 128
+          && data.type is string && data.type.size() <= 32
+          && data.items is list
+          && data.count is number
+          && data.updated_at is string && data.updated_at.size() <= 64) ||
+        (data.keys().hasAll(['id', 'kategori', 'kode_standar_harga', 'nama_standar_harga', 'harga_satuan'])
+          && data.id is string && data.id.size() <= 128
+          && data.kategori is string && data.kategori.size() <= 16
+          && data.kode_standar_harga is string && data.kode_standar_harga.size() <= 128
+          && data.nama_standar_harga is string && data.nama_standar_harga.size() <= 500
+          && data.harga_satuan is number)
+      );
+    }
+
     // Sub-kegiatan koleksi anggaran
     match /sub_kegiatan/{subKegiatanId} {
       allow read: if true;
@@ -69,6 +86,14 @@ service cloud.firestore {
       allow create: if isValidId(userId) && isValidAppUser(incoming());
       allow update: if isValidId(userId) && isValidAppUser(incoming());
       allow delete: if isValidId(userId);
+    }
+
+    // Katalog Standar Harga Satuan (SSH, HSPK, ASB, SBU)
+    match /standar_harga/{docId} {
+      allow read: if true;
+      allow create: if isValidId(docId) && isValidStandarHarga(incoming());
+      allow update: if isValidId(docId) && isValidStandarHarga(incoming());
+      allow delete: if isValidId(docId);
     }
   }
 }

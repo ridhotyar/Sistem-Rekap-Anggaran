@@ -557,7 +557,7 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
                 </div>
               </div>
             ) : (
-              <span className="text-slate-400 dark:text-slate-500 font-mono text-xs sm:text-sm font-bold">
+              <span className="text-slate-500 dark:text-slate-300 font-mono text-xs sm:text-sm font-bold">
                 0 (0%)
               </span>
             )}
@@ -719,7 +719,7 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
                       </div>
                     </div>
                   ) : (
-                    <span className="text-slate-400 dark:text-slate-500 font-mono text-xs sm:text-sm font-bold">
+                    <span className="text-slate-500 dark:text-slate-300 font-mono text-xs sm:text-sm font-bold">
                       0 (0%)
                     </span>
                   )}
@@ -1063,37 +1063,37 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
 
                   {/* Program Total Pagu (Sebelum, Sesudah, Selisih) & Collapse Button */}
                   <div className="flex items-center gap-2.5 shrink-0 self-end md:self-center flex-wrap">
-                    <div className="text-right bg-white dark:bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs min-w-[110px]">
-                      <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
+                    <div className="text-right bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs min-w-[110px]">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-300 block tracking-wider">
                         Sebelum
                       </span>
                       <CurrencyText
                         amount={group.totalPaguIndikatif}
-                        className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300 font-mono"
+                        className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 font-mono block"
                       />
                     </div>
 
-                    <div className="text-right bg-white dark:bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs min-w-[110px]">
-                      <span className="text-[9px] uppercase font-bold text-slate-500 dark:text-slate-400 block tracking-wider">
+                    <div className="text-right bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs min-w-[110px]">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-300 block tracking-wider">
                         Sesudah
                       </span>
                       <CurrencyText
                         amount={group.totalPaguPerubahan}
-                        className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white font-mono"
+                        className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white font-mono block"
                       />
                     </div>
 
-                    <div className="text-right bg-white dark:bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs min-w-[115px]">
+                    <div className="text-right bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs min-w-[115px]">
                       <div className="flex items-center justify-end gap-1">
-                        <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">
+                        <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-300 tracking-wider">
                           Selisih
                         </span>
                         {group.selisih !== 0 && (
                           <span
                             className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
                               group.selisih > 0
-                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300/40 dark:border-emerald-700/60'
+                                : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300/40 dark:border-rose-700/60'
                             }`}
                           >
                             {group.selisih > 0 ? '+' : ''}{group.persenSelisih.toFixed(1)}%
@@ -1106,13 +1106,13 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
                             ? 'text-emerald-600 dark:text-emerald-400'
                             : group.selisih < 0
                             ? 'text-rose-600 dark:text-rose-400'
-                            : 'text-slate-400 dark:text-slate-500'
+                            : 'text-slate-500 dark:text-slate-300'
                         }`}
                       >
                         {group.selisih > 0 ? '+' : ''}
                         <CurrencyText
                           amount={group.selisih}
-                          className="inline text-xs sm:text-sm font-bold font-mono"
+                          className="inline text-xs sm:text-sm font-bold font-mono text-inherit"
                         />
                       </div>
                     </div>
@@ -1171,37 +1171,37 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
                             </div>
 
                             <div className="flex items-center gap-2 shrink-0 self-end sm:self-center flex-wrap">
-                              <div className="text-right bg-white dark:bg-slate-850 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs min-w-[100px]">
-                                <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
+                              <div className="text-right bg-white dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs min-w-[100px]">
+                                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-300 block tracking-wider">
                                   Sebelum
                                 </span>
                                 <CurrencyText
                                   amount={kegiatan.totalPaguIndikatif}
-                                  className="text-xs font-bold text-slate-700 dark:text-slate-300 font-mono"
+                                  className="text-xs font-bold text-slate-800 dark:text-slate-100 font-mono block"
                                 />
                               </div>
 
-                              <div className="text-right bg-white dark:bg-slate-850 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs min-w-[100px]">
-                                <span className="text-[9px] uppercase font-bold text-slate-500 dark:text-slate-400 block tracking-wider">
+                              <div className="text-right bg-white dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs min-w-[100px]">
+                                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-300 block tracking-wider">
                                   Sesudah
                                 </span>
                                 <CurrencyText
                                   amount={kegiatan.totalPaguPerubahan}
-                                  className="text-xs font-bold text-slate-900 dark:text-white font-mono"
+                                  className="text-xs font-bold text-slate-900 dark:text-white font-mono block"
                                 />
                               </div>
 
-                              <div className="text-right bg-white dark:bg-slate-850 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs min-w-[105px]">
+                              <div className="text-right bg-white dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs min-w-[105px]">
                                 <div className="flex items-center justify-end gap-1">
-                                  <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">
+                                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-300 tracking-wider">
                                     Selisih
                                   </span>
                                   {kegiatan.selisih !== 0 && (
                                     <span
                                       className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
                                         kegiatan.selisih > 0
-                                          ? 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300'
-                                          : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                          ? 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300/40 dark:border-teal-700/60'
+                                          : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300/40 dark:border-rose-700/60'
                                       }`}
                                     >
                                       {kegiatan.selisih > 0 ? '+' : ''}{kegiatan.persenSelisih.toFixed(1)}%
@@ -1214,13 +1214,13 @@ export const SubKegiatanSummaryTable: React.FC<SubKegiatanSummaryTableProps> = (
                                       ? 'text-emerald-600 dark:text-emerald-400'
                                       : kegiatan.selisih < 0
                                       ? 'text-rose-600 dark:text-rose-400'
-                                      : 'text-slate-400 dark:text-slate-500'
+                                      : 'text-slate-500 dark:text-slate-300'
                                   }`}
                                 >
                                   {kegiatan.selisih > 0 ? '+' : ''}
                                   <CurrencyText
                                     amount={kegiatan.selisih}
-                                    className="inline text-xs font-bold font-mono"
+                                    className="inline text-xs font-bold font-mono text-inherit"
                                   />
                                 </div>
                               </div>

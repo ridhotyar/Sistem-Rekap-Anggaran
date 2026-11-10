@@ -30,6 +30,7 @@ import {
   downloadStandarHargaTemplate,
   resetStandarHargaToDefault,
   saveStoredStandarHarga,
+  mergeStandarHargaLists,
 } from '../../services/standarHargaService';
 
 export interface StandarHargaModalProps {
@@ -194,21 +195,18 @@ export const StandarHargaModal: React.FC<StandarHargaModalProps> = ({
   const handleConfirmImport = () => {
     if (!parsedPreviewItems || parsedPreviewItems.length === 0) return;
 
-    let updatedList: StandarHargaItem[];
-    if (importMode === 'replace') {
-      updatedList = parsedPreviewItems;
-    } else {
-      // Merge: hindari duplikat kode_standar_harga jika sudah ada
-      const existingMap = new Map(standarHargaList.map((i) => [i.kode_standar_harga.toLowerCase(), i]));
-      parsedPreviewItems.forEach((newItem) => {
-        existingMap.set(newItem.kode_standar_harga.toLowerCase(), newItem);
-      });
-      updatedList = Array.from(existingMap.values());
-    }
+    const updatedList = mergeStandarHargaLists(
+      standarHargaList,
+      parsedPreviewItems,
+      importTargetCategory,
+      importMode
+    );
 
     saveStoredStandarHarga(updatedList);
     onUpdateStandarHargaList(updatedList);
-    setImportSuccessMessage(`Berhasil mengimpor ${parsedPreviewItems.length} item standar harga.`);
+    setImportSuccessMessage(
+      `Berhasil mengimpor ${parsedPreviewItems.length} item standar harga. Total database sekarang: ${updatedList.length} item.`
+    );
     setParsedPreviewItems(null);
     setTimeout(() => {
       setIsImporting(false);

@@ -8,7 +8,7 @@ import { ConfirmDeleteSubKegiatanModal } from './components/organisms/ConfirmDel
 import { FirebaseSyncGuideModal } from './components/organisms/FirebaseSyncGuideModal';
 import { UserManagementModal } from './components/organisms/UserManagementModal';
 import { StandarHargaPage } from './components/pages/StandarHargaPage';
-import { getStoredStandarHarga } from './services/standarHargaService';
+import { getStoredStandarHarga, loadStandarHargaFromIDB, saveStoredStandarHarga } from './services/standarHargaService';
 import {
   testFirestoreConnection,
   subscribeAuth,
@@ -21,6 +21,9 @@ import {
   removeSubKegiatan,
   seedInitialDataIfEmpty,
   forceSyncLocalToFirestore,
+  loadStandarHargaFromFirestore,
+  saveStandarHargaToFirestore,
+  getFirestoreQuotaStatus,
 } from './services/firebase';
 import {
   INITIAL_USER_RINCIAN_DATA,
@@ -154,6 +157,34 @@ function AppContent() {
       console.warn('LocalStorage error:', e);
     }
   }, [subKegiatans]);
+
+  // Muat standar harga berkapasitas besar dari IndexedDB dan sinkronkan dengan cloud Firestore saat boot
+  useEffect(() => {
+    let isMounted = true;
+    const initStandarHarga = async () => {
+      // 1. Muat cepat dari IndexedDB lokal
+      const idbItems = await loadStandarHargaFromIDB();
+      if (idbItems && idbItems.length > 0 && isMounted) {
+        setStandarHargaList(idbItems);
+      }
+
+      // 2. Ambil dari cloud Firebase Firestore jika ada katalog tersimpan
+      try {
+        const cloudItems = await loadStandarHargaFromFirestore();
+        if (cloudItems && cloudItems.length > 0 && isMounted) {
+          setStandarHargaList(cloudItems);
+          saveStoredStandarHarga(cloudItems);
+        }
+      } catch (err) {
+        console.warn('Init cloud Standar Harga notice:', err);
+      }
+    };
+
+    initStandarHarga();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Enhanced Sub-Kegiatan list: seamlessly incorporates aggregated totals & Keterangan list from rincianItems
   const enhancedSubKegiatans = useMemo(() => {
@@ -567,11 +598,15 @@ function AppContent() {
     }
     setRincianItems(INITIAL_USER_RINCIAN_DATA);
     setSubKegiatans(INITIAL_SUB_KEGIATAN_LIST);
-    for (const item of INITIAL_USER_RINCIAN_DATA) {
-      try {
-        await saveRincianBelanja(item);
-      } catch (e) {
-        // Ignored in local mode
+
+    // Only attempt individual remote writes if quota is not exhausted
+    if (!getFirestoreQuotaStatus().isExhausted) {
+      for (const item of INITIAL_USER_RINCIAN_DATA) {
+        try {
+          await saveRincianBelanja(item);
+        } catch (e) {
+          // Ignored in local mode
+        }
       }
     }
   };
@@ -580,8 +615,8 @@ function AppContent() {
     setIsSyncing(true);
     const connected = await testFirestoreConnection();
     setIsFirebaseConnected(connected);
-    if (connected) {
-      await forceSyncLocalToFirestore(subKegiatans, rincianItems, getStoredUsers());
+    if (connected && !getFirestoreQuotaStatus().isExhausted) {
+      await forceSyncLocalToFirestore(subKegiatans, rincianItems, getStoredUsers(), standarHargaList);
     }
     setTimeout(() => {
       setIsSyncing(false);

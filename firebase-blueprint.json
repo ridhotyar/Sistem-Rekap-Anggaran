@@ -279,6 +279,41 @@
         "nama",
         "role"
       ]
+    },
+    "StandarHargaDocument": {
+      "title": "StandarHargaDocument",
+      "description": "Katalog terpadu Standar Satuan Harga Daerah (SSH, HSPK, ASB, SBU) dengan skema chunk berkapasitas tinggi",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "ID dokumen chunk katalog standar harga"
+        },
+        "type": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Tipe dokumen (chunk | meta | item)"
+        },
+        "items": {
+          "type": "array",
+          "description": "Daftar baris item standar harga dalam chunk"
+        },
+        "count": {
+          "type": "number",
+          "description": "Jumlah item dalam dokumen chunk"
+        },
+        "updated_at": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Waktu sinkronisasi katalog"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "updated_at"
+      ]
     }
   },
   "firestore": {
@@ -299,6 +334,12 @@
         "$ref": "#/entities/AppUser"
       },
       "description": "Koleksi akun pengguna dan kredensial sistem"
+    },
+    "/standar_harga/{docId}": {
+      "schema": {
+        "$ref": "#/entities/StandarHargaDocument"
+      },
+      "description": "Koleksi katalog standar harga satuan daerah (SSH, HSPK, ASB, SBU) tersinkronisasi"
     }
   }
 }
